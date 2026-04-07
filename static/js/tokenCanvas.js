@@ -314,6 +314,13 @@ var TokenCanvas = {
             }
         }
 
+        if (state.presetOverlayActive && state.presetOverlayCanvas) {
+            var alpha = state._presetOverlayAlpha !== undefined ? state._presetOverlayAlpha : 0.6;
+            this.ctx.globalAlpha = alpha;
+            this.ctx.drawImage(state.presetOverlayCanvas, 0, 0);
+            this.ctx.globalAlpha = 1;
+        }
+
         if (state.showProtectionMask && state.erasableCanvas) {
             this._renderProtectionMaskOverlay(size);
         }

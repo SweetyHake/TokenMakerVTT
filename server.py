@@ -44,17 +44,84 @@ def validate_image(image):
 def get_providers():
     global DEVICE_NAME
     available = ort.get_available_providers()
+
+    VIRTUAL_ADAPTER_KEYWORDS = [
+        'parsec', 'virtual', 'microsoft', 'basic', 'remote',
+        'indirect', 'display only', 'rdp', 'teamviewer', 'anydesk'
+    ]
+
+    def is_real_gpu(name):
+        name_lower = name.lower()
+        return not any(kw in name_lower for kw in VIRTUAL_ADAPTER_KEYWORDS)
+
+    def get_gpu_name_windows():
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'],
+                capture_output=True, text=True, timeout=5
+            )
+            names = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+            real = [n for n in names if is_real_gpu(n)]
+            return real[0] if real else None
+        except Exception:
+            return None
+
     if 'DmlExecutionProvider' in available:
-        DEVICE_NAME = "DirectML (AMD GPU)"
+        gpu_name = get_gpu_name_windows()
+        DEVICE_NAME = f'DirectML ({gpu_name})' if gpu_name else 'DirectML GPU'
         return ['DmlExecutionProvider', 'CPUExecutionProvider']
+
     elif 'ROCMExecutionProvider' in available:
-        DEVICE_NAME = "ROCm (AMD GPU)"
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['rocm-smi', '--showproductname'],
+                capture_output=True, text=True, timeout=5
+            )
+            lines = [l.strip() for l in result.stdout.splitlines() if l.strip() and is_real_gpu(l)]
+            gpu_name = lines[0] if lines else None
+            DEVICE_NAME = f'ROCm ({gpu_name})' if gpu_name else 'ROCm GPU'
+        except Exception:
+            DEVICE_NAME = 'ROCm GPU'
         return ['ROCMExecutionProvider', 'CPUExecutionProvider']
+
     elif 'CUDAExecutionProvider' in available:
-        DEVICE_NAME = "CUDA (NVIDIA GPU)"
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                capture_output=True, text=True, timeout=5
+            )
+            gpu_name = result.stdout.strip().splitlines()[0].strip()
+            DEVICE_NAME = f'CUDA ({gpu_name})' if gpu_name else 'NVIDIA GPU'
+        except Exception:
+            DEVICE_NAME = 'NVIDIA GPU'
         return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+
     else:
-        DEVICE_NAME = "CPU"
+        try:
+            import platform
+            cpu = platform.processor()
+            if not cpu:
+                import subprocess
+                if sys.platform == 'win32':
+                    result = subprocess.run(
+                        ['powershell', '-Command',
+                         '(Get-CimInstance Win32_Processor | Select-Object -First 1).Name'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    cpu = result.stdout.strip()
+                else:
+                    result = subprocess.run(
+                        ['grep', '-m1', 'model name', '/proc/cpuinfo'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    cpu = result.stdout.split(':')[-1].strip() if ':' in result.stdout else ''
+            DEVICE_NAME = cpu if cpu else 'CPU'
+        except Exception:
+            DEVICE_NAME = 'CPU'
         return ['CPUExecutionProvider']
 
 
@@ -98,13 +165,30 @@ def load_session():
 
 
 def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
+    import numpy as np
+    from PIL import ImageFilter
+
     mask_np = np.array(mask_pil).astype(np.float32)
+
     mask_np[mask_np < threshold_low] = 0
     mask_np[mask_np > threshold_high] = 255
+
     mask_pil = Image.fromarray(mask_np.astype(np.uint8), mode='L')
+
     mask_pil = mask_pil.filter(ImageFilter.MinFilter(3))
+
+    eroded = mask_pil.filter(ImageFilter.MinFilter(3))
+    dilated = eroded.filter(ImageFilter.MaxFilter(5))
+    mask_pil = dilated
+
     if edge_blur > 0:
-        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(edge_blur))
+        blur_radius = max(edge_blur, 1.5)
+        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(blur_radius))
+
+    mask_np2 = np.array(mask_pil).astype(np.float32)
+    mask_np2 = np.clip((mask_np2 - 10) * (255.0 / 235.0), 0, 255)
+    mask_pil = Image.fromarray(mask_np2.astype(np.uint8), mode='L')
+
     return mask_pil
 
 
@@ -211,6 +295,36 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/presets_list')
+def presets_list():
+    extensions = {'.png', '.webp', '.jpg', '.jpeg'}
+    preset_dir = BASE_DIR / 'presets'
+    if not preset_dir.exists():
+        preset_dir.mkdir(exist_ok=True)
+    presets = []
+    for f in sorted(preset_dir.iterdir()):
+        if f.is_file() and f.suffix.lower() in extensions:
+            presets.append({'name': f.stem, 'file': f.name})
+    return jsonify(presets)
+
+
+@app.route('/preset_file/<filename>')
+def preset_file(filename):
+    safe = Path(filename).name
+    preset_dir = BASE_DIR / 'presets'
+    path = preset_dir / safe
+    if not path.exists() or not path.is_file():
+        return jsonify({'error': 'Not found'}), 404
+    ext = path.suffix.lower()
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime = mime_map.get(ext, 'image/octet-stream')
+    response = send_file(str(path), mimetype=mime)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+def index():
+    return render_template('index.html')
+
+
 @app.route('/device')
 def device():
     return jsonify({'device': DEVICE_NAME})
@@ -257,6 +371,19 @@ def mask():
 
 
 @app.route('/preset')
+def preset():
+    name = request.args.get('name', 'preset1')
+    if not name.replace('_', '').replace('-', '').isalnum():
+        return jsonify({'error': 'Invalid preset name'}), 400
+    preset_dir = BASE_DIR / 'presets'
+    for ext in ['.png', '.webp', '.jpg']:
+        preset_path = preset_dir / f"{name}{ext}"
+        if preset_path.exists():
+            mime = 'image/png' if ext == '.png' else 'image/webp' if ext == '.webp' else 'image/jpeg'
+            response = send_file(str(preset_path), mimetype=mime)
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+            return response
+    return jsonify({'error': 'Preset not found'}), 404
 def preset():
     name = request.args.get('name', 'preset1')
     if not name.replace('_', '').replace('-', '').isalnum():

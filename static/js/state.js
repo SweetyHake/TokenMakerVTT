@@ -18,6 +18,8 @@ var state = {
     imageMaskCanvas: null,
     imageMaskProtection: null,
     eraserPresets: [],
+    presetOverlayCanvas: null,
+    presetOverlayActive: false,
     currentPreset: -1,
     currentTool: 'move',
     currentEraserMode: 'blue',

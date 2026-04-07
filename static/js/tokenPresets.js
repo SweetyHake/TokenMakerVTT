@@ -1,8 +1,11 @@
 const TokenPresets = {
+    _presetOverlayTimer: null,
+    _presetOverlayPhase: 0,
+    _presetOverlayRaf: null,
+
     buildProtectionCanvasFromImg(img, internalSize) {
         const maskDisplaySize = CONFIG.SCALE_SIZES[1];
         const offset = Math.round((internalSize - maskDisplaySize) / 2);
-
         const srcW = img.naturalWidth || img.width;
         const srcH = img.naturalHeight || img.height;
 
@@ -26,20 +29,15 @@ const TokenPresets = {
                 const mx = x - offset;
                 const my = y - offset;
                 const oi = (y * internalSize + x) * 4;
-
                 if (mx < 0 || my < 0 || mx >= maskDisplaySize || my >= maskDisplaySize) {
                     pd[oi] = 0; pd[oi+1] = 0; pd[oi+2] = 0; pd[oi+3] = 0;
                     continue;
                 }
-
                 const si = (my * maskDisplaySize + mx) * 4;
                 const a = sd[si + 3];
                 const brightness = (sd[si] + sd[si+1] + sd[si+2]) / 3;
                 const isProtected = a > 16 && brightness < 220;
-
-                pd[oi]   = 255;
-                pd[oi+1] = 255;
-                pd[oi+2] = 255;
+                pd[oi] = 255; pd[oi+1] = 255; pd[oi+2] = 255;
                 pd[oi+3] = isProtected ? 255 : 0;
             }
         }
@@ -93,74 +91,151 @@ const TokenPresets = {
     _rebuildErasableCanvas() {
         const img = state._rawProtectionMaskImg;
         const internalSize = TokenCanvas.internalSize;
-
         if (!img) {
-            const c = document.createElement('canvas');
-            c.width = internalSize;
-            c.height = internalSize;
-            const ctx = c.getContext('2d');
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, internalSize, internalSize);
             state.erasableCanvas = null;
             state.protectionMask = null;
             return;
         }
-
         const protCanvas = this.buildProtectionCanvasFromImg(img, internalSize);
         state.protectionMask = protCanvas;
         state.erasableCanvas = protCanvas;
     },
 
     loadPresets() {
-        const presetNames = ['preset1', 'preset2', 'preset3'];
-        presetNames.forEach((name, index) => {
-            fetch(`/preset?name=${name}`).then(r => {
-                if (r.ok) return r.blob();
-                throw new Error('Not found');
-            }).then(blob => {
-                const img = new Image();
-                const url = URL.createObjectURL(blob);
-                img.onload = () => {
-                    state.eraserPresets[index] = this.processMaskImage(img, TokenCanvas.internalSize);
-                    this.updateButtons();
-                };
-                img.src = url;
-            }).catch(() => {
-                state.eraserPresets[index] = null;
-                this.updateButtons();
-            });
-        });
+        fetch('/presets_list')
+            .then(r => r.json())
+            .then(presets => {
+                state.eraserPresets = [];
+                const loads = presets.map((preset, index) => {
+                    return fetch(`/preset_file/${encodeURIComponent(preset.file)}`)
+                        .then(r => r.blob())
+                        .then(blob => {
+                            const img = new Image();
+                            const url = URL.createObjectURL(blob);
+                            return new Promise(resolve => {
+                                img.onload = () => {
+                                    state.eraserPresets[index] = {
+                                        canvas: this.processMaskImage(img, TokenCanvas.internalSize),
+                                        rawImg: img,
+                                        name: preset.name,
+                                        file: preset.file
+                                    };
+                                    resolve();
+                                };
+                                img.onerror = () => resolve();
+                                img.src = url;
+                            });
+                        })
+                        .catch(() => {});
+                });
+                Promise.all(loads).then(() => this.updateButtons());
+            })
+            .catch(() => {});
+    },
+
+    _buildPresetOverlay(presetIndex) {
+        const preset = state.eraserPresets[presetIndex];
+        if (!preset || !preset.canvas) return null;
+
+        const internalSize = TokenCanvas.internalSize;
+        const overlay = document.createElement('canvas');
+        overlay.width = internalSize;
+        overlay.height = internalSize;
+        const ctx = overlay.getContext('2d');
+
+        const srcData = preset.canvas.getContext('2d').getImageData(0, 0, internalSize, internalSize);
+        const outData = ctx.createImageData(internalSize, internalSize);
+        const sd = srcData.data;
+        const od = outData.data;
+
+        for (let i = 0; i < sd.length; i += 4) {
+            const isErased = sd[i+3] < 128;
+            od[i]   = isErased ? 255 : 0;
+            od[i+1] = isErased ? 80  : 0;
+            od[i+2] = isErased ? 160 : 0;
+            od[i+3] = isErased ? 200 : 0;
+        }
+
+        ctx.putImageData(outData, 0, 0);
+        return overlay;
+    },
+
+    showPresetOverlay(presetIndex) {
+        state.presetOverlayCanvas = this._buildPresetOverlay(presetIndex);
+        state.presetOverlayActive = true;
+        state._presetOverlayAlpha = 0.6;
+        this._presetOverlayPhase = 0;
+        if (this._presetOverlayRaf) {
+            cancelAnimationFrame(this._presetOverlayRaf);
+            this._presetOverlayRaf = null;
+        }
+        this._animateOverlay();
+    },
+
+    hidePresetOverlay() {
+        state.presetOverlayActive = false;
+        state.presetOverlayCanvas = null;
+        state._presetOverlayAlpha = 0.6;
+        if (this._presetOverlayRaf) {
+            cancelAnimationFrame(this._presetOverlayRaf);
+            this._presetOverlayRaf = null;
+        }
+        TokenCanvas.render();
+    },
+
+    _animateOverlay() {
+        if (!state.presetOverlayActive) return;
+        this._presetOverlayPhase += 0.004;
+        state._presetOverlayAlpha = 0.35 + Math.sin(this._presetOverlayPhase * Math.PI * 2) * 0.3;
+        TokenCanvas.render();
+        this._presetOverlayRaf = requestAnimationFrame(() => this._animateOverlay());
     },
 
     updateButtons() {
         const container = $('presetButtons');
         if (!container) return;
         container.innerHTML = '';
+
+        if (state.eraserPresets.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'font-size:11px;color:var(--text-muted);padding:4px 0;';
+            empty.textContent = 'Нет пресетов в папке presets/';
+            container.appendChild(empty);
+            return;
+        }
+
         state.eraserPresets.forEach((preset, index) => {
-            if (preset) {
-                const btn = document.createElement('button');
-                btn.className = 'preset-btn' + (state.currentPreset === index ? ' active' : '');
-                btn.textContent = `Пресет ${index + 1}`;
-                btn.onclick = () => this.apply(index);
-                container.appendChild(btn);
-            }
+            if (!preset) return;
+            const btn = document.createElement('button');
+            btn.className = 'preset-btn' + (state.currentPreset === index ? ' active' : '');
+            btn.textContent = preset.name;
+            btn.onclick = () => this.apply(index);
+            btn.addEventListener('mouseenter', () => this.showPresetOverlay(index));
+            btn.addEventListener('mouseleave', () => this.hidePresetOverlay());
+            container.appendChild(btn);
         });
     },
 
     apply(index) {
-        if (!state.eraserPresets[index] || !state.maskCanvas) return;
+        const preset = state.eraserPresets[index];
+        if (!preset || !preset.canvas || !state.maskCanvas) return;
+
+        this.hidePresetOverlay();
+
         const maskCtx = state.maskCanvas.getContext('2d');
         maskCtx.globalCompositeOperation = 'source-over';
         maskCtx.fillStyle = 'white';
         maskCtx.fillRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
         maskCtx.globalCompositeOperation = 'destination-in';
-        maskCtx.drawImage(state.eraserPresets[index], 0, 0);
+        maskCtx.drawImage(preset.canvas, 0, 0);
         maskCtx.globalCompositeOperation = 'source-over';
+
         state.currentPreset = index;
         this.updateButtons();
         TokenHistory.save();
         TokenCanvas.render();
-        toast(`Пресет ${index + 1} применён`);
+        toast(`Пресет "${preset.name}" применён`);
+
         const pinkBtn = document.querySelector('.eraser-mode-btn[data-mode="pink"]');
         if (pinkBtn) pinkBtn.click();
     },
