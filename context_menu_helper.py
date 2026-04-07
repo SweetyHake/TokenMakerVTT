@@ -2,8 +2,6 @@
 import sys
 import os
 import urllib.request
-import urllib.parse
-import json
 import time
 from pathlib import Path
 
@@ -22,15 +20,11 @@ def server_running():
 def remove_bg(file_path: str):
     file_path = Path(file_path)
     if not file_path.exists():
-        print(f'Файл не найден: {file_path}', file=sys.stderr)
         sys.exit(1)
 
     if not server_running():
-        print('Token Maker не запущен. Откройте приложение и попробуйте снова.')
-        input('Нажмите Enter для выхода...')
+        _notify('Token Maker is not running. Open the app first.')
         sys.exit(1)
-
-    print(f'Удаление фона: {file_path.name}')
 
     with open(file_path, 'rb') as f:
         file_data = f.read()
@@ -59,12 +53,9 @@ def remove_bg(file_path: str):
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             result_data = resp.read()
-        out_path = file_path.with_name(file_path.stem + '_nobg.webp')
+        out_path = file_path.with_suffix('.webp')
         out_path.write_bytes(result_data)
-        print(f'Сохранено: {out_path}')
-    except Exception as e:
-        print(f'Ошибка: {e}', file=sys.stderr)
-        input('Нажмите Enter для выхода...')
+    except Exception:
         sys.exit(1)
 
 
@@ -74,10 +65,10 @@ def to_webp(file_path: str):
 
     file_path = Path(file_path)
     if not file_path.exists():
-        print(f'Файл не найден: {file_path}', file=sys.stderr)
         sys.exit(1)
 
-    print(f'Конвертация в WebP: {file_path.name}')
+    if file_path.suffix.lower() == '.webp':
+        sys.exit(0)
 
     try:
         image = Image.open(file_path)
@@ -85,17 +76,34 @@ def to_webp(file_path: str):
         buf = io.BytesIO()
         image.save(buf, format='WEBP', quality=90)
         out_path.write_bytes(buf.getvalue())
-        print(f'Сохранено: {out_path}')
-    except Exception as e:
-        print(f'Ошибка: {e}', file=sys.stderr)
-        input('Нажмите Enter для выхода...')
+        if out_path != file_path:
+            file_path.unlink()
+    except Exception:
         sys.exit(1)
+
+
+def _notify(message: str):
+    try:
+        import subprocess
+        subprocess.Popen(
+            [
+                'powershell', '-WindowStyle', 'Hidden', '-Command',
+                f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null;'
+                f'$n = New-Object System.Windows.Forms.NotifyIcon;'
+                f'$n.Icon = [System.Drawing.SystemIcons]::Information;'
+                f'$n.Visible = $true;'
+                f'$n.ShowBalloonTip(4000, "Token Maker", "{message}", [System.Windows.Forms.ToolTipIcon]::Info);'
+                f'Start-Sleep -Milliseconds 4500;'
+                f'$n.Dispose()'
+            ],
+            creationflags=0x08000000
+        )
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print('Использование: context_menu_helper.py --remove-bg <file>')
-        print('               context_menu_helper.py --to-webp <file>')
         sys.exit(1)
 
     flag = sys.argv[1]
@@ -106,5 +114,4 @@ if __name__ == '__main__':
     elif flag == '--to-webp':
         to_webp(file_arg)
     else:
-        print(f'Неизвестный флаг: {flag}', file=sys.stderr)
         sys.exit(1)

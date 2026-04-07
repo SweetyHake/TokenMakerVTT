@@ -168,26 +168,19 @@ def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
     import numpy as np
     from PIL import ImageFilter
 
-    mask_np = np.array(mask_pil).astype(np.float32)
+    mask_np = np.array(mask_pil).astype(np.float32) / 255.0
 
-    mask_np[mask_np < threshold_low] = 0
-    mask_np[mask_np > threshold_high] = 255
+    low = threshold_low / 255.0
+    high = threshold_high / 255.0
 
-    mask_pil = Image.fromarray(mask_np.astype(np.uint8), mode='L')
+    mask_np = np.clip((mask_np - low) / (high - low + 1e-8), 0.0, 1.0)
 
-    mask_pil = mask_pil.filter(ImageFilter.MinFilter(3))
+    mask_np = mask_np ** 1.2
 
-    eroded = mask_pil.filter(ImageFilter.MinFilter(3))
-    dilated = eroded.filter(ImageFilter.MaxFilter(5))
-    mask_pil = dilated
+    mask_pil = Image.fromarray((mask_np * 255).astype(np.uint8), mode='L')
 
     if edge_blur > 0:
-        blur_radius = max(edge_blur, 1.5)
-        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(blur_radius))
-
-    mask_np2 = np.array(mask_pil).astype(np.float32)
-    mask_np2 = np.clip((mask_np2 - 10) * (255.0 / 235.0), 0, 255)
-    mask_pil = Image.fromarray(mask_np2.astype(np.uint8), mode='L')
+        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(edge_blur * 0.4))
 
     return mask_pil
 
