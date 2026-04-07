@@ -20,12 +20,25 @@ const TokenEditor = {
         this.setupSaveButtons();
         this.setupKeyboardControls();
         this.setupPortraitVisibility();
+        this.updateToolHotkeys();
+    },
+
+    updateToolHotkeys() {
+        const hk = AppConfig.hotkeys;
+        const map = {
+            '[data-tool="move"] kbd':              codeToLabel(hk.toolMove),
+            '[data-tool="removebg"] kbd':           codeToLabel(hk.toolRemoveBg),
+            '.eraser-mode-btn.eraser-blue kbd':     codeToLabel(hk.toolEraser),
+            '.eraser-mode-btn.eraser-pink kbd':     codeToLabel(hk.toolMask),
+        };
+        Object.entries(map).forEach(([sel, label]) => {
+            document.querySelectorAll(sel).forEach(el => { el.textContent = label; });
+        });
     },
 
     setupDropzone() {
         const tokenDropzone = $('tokenDropzone');
         const tokenFileInput = $('tokenFileInput');
-
         if (tokenDropzone && tokenFileInput) {
             tokenDropzone.onclick = e => { e.stopPropagation(); tokenFileInput.click(); };
             tokenDropzone.ondragover = e => { e.preventDefault(); tokenDropzone.style.borderColor = 'var(--accent)'; };
@@ -37,14 +50,12 @@ const TokenEditor = {
                 if (files.length > 0) TokenCanvas.loadImage(files[0]);
             };
         }
-
         if (tokenFileInput) {
             tokenFileInput.onchange = e => {
                 if (e.target.files.length > 0) TokenCanvas.loadImage(e.target.files[0]);
                 tokenFileInput.value = '';
             };
         }
-
         const tokenFileNameInput = $('tokenFileName');
         if (tokenFileNameInput) {
             tokenFileNameInput.oninput = e => { state.tokenFileName = e.target.value || 'token'; };
@@ -86,7 +97,6 @@ const TokenEditor = {
 
         const eraserSizeSlider = $('eraserSize');
         const eraserSizeInput = $('eraserSizeInput');
-
         function applyEraserSize(val) {
             val = clamp(parseInt(val) || 50, 1, 300);
             state.eraserSize = val;
@@ -94,7 +104,6 @@ const TokenEditor = {
             if (eraserSizeSlider) eraserSizeSlider.value = val;
             if (eraserSizeInput) eraserSizeInput.value = val;
         }
-
         if (eraserSizeSlider) eraserSizeSlider.oninput = e => applyEraserSize(e.target.value);
         if (eraserSizeInput) {
             eraserSizeInput.onchange = e => applyEraserSize(e.target.value);
@@ -103,17 +112,14 @@ const TokenEditor = {
 
         const resetMaskBtn = $('resetMask');
         if (resetMaskBtn) resetMaskBtn.onclick = () => TokenCanvas.resetMask();
-
         const resetImageMaskBtn = $('resetImageMask');
         if (resetImageMaskBtn) resetImageMaskBtn.onclick = () => TokenCanvas.resetImageMask();
     },
 
     async handleRemoveBackground(btn) {
         if (!state.userImageOriginal && !state.userImageWithoutBg) {
-            toast('Сначала загрузите изображение', true);
-            return;
+            toast('Сначала загрузите изображение', true); return;
         }
-
         if (state.backgroundRemoved && state.userImageWithoutBg) {
             state.showingOriginal = !state.showingOriginal;
             if (state.showingOriginal) {
@@ -132,67 +138,48 @@ const TokenEditor = {
             if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) PortraitGenerator.render();
             return;
         }
-
         if (!state.userImageOriginal) return;
-
         toast('Удаление фона...');
         btn.disabled = true;
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span><kbd>R</kbd>`;
-
+        btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span><kbd>${codeToLabel(AppConfig.hotkeys.toolRemoveBg)}</kbd>`;
         try {
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = state.userImageOriginal.width;
             tempCanvas.height = state.userImageOriginal.height;
             tempCanvas.getContext('2d').drawImage(state.userImageOriginal, 0, 0);
             const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/png'));
-
             const fd = new FormData();
             fd.append('image', blob, 'image.png');
             fd.append('format', 'png');
-
             const res = await fetch('/process', { method: 'POST', body: fd });
             if (!res.ok) throw new Error('Ошибка обработки');
-
             const resultBlob = await res.blob();
             const url = URL.createObjectURL(resultBlob);
-
             const newImage = new Image();
             newImage.onload = () => {
-                if (state.userImageUrl) {
-                    URL.revokeObjectURL(state.userImageUrl);
-                }
+                if (state.userImageUrl) URL.revokeObjectURL(state.userImageUrl);
                 state.userImageUrl = url;
                 state.userImageWithoutBg = newImage;
                 state.userImage = newImage;
                 state.backgroundRemoved = true;
                 state.showingOriginal = false;
-
                 if (state.imageMaskCanvas) {
                     const ctx = state.imageMaskCanvas.getContext('2d');
                     ctx.clearRect(0, 0, state.imageMaskCanvas.width, state.imageMaskCanvas.height);
                     ctx.fillStyle = 'white';
                     ctx.fillRect(0, 0, state.imageMaskCanvas.width, state.imageMaskCanvas.height);
                 }
-
                 TokenCanvas._compositedImageDirty = true;
                 TokenCanvas._imageBrushCache = null;
-
                 this.updateRemoveBgButton();
                 TokenHistory.save();
                 TokenCanvas.render();
-
-                if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) {
-                    PortraitGenerator.render();
-                }
+                if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) PortraitGenerator.render();
                 toast('Фон удалён!');
             };
-            newImage.onerror = () => {
-                URL.revokeObjectURL(url);
-                throw new Error('Не удалось загрузить результат');
-            };
+            newImage.onerror = () => { URL.revokeObjectURL(url); throw new Error('Не удалось загрузить результат'); };
             newImage.src = url;
-
         } catch (err) {
             toast('Ошибка: ' + err.message, true);
             btn.disabled = false;
@@ -207,13 +194,8 @@ const TokenEditor = {
         if (!span) return;
         if (state.backgroundRemoved && state.userImageWithoutBg) {
             btn.disabled = false;
-            if (state.showingOriginal) {
-                span.textContent = 'Показать без фона';
-                btn.classList.remove('active');
-            } else {
-                span.textContent = 'Показать оригинал';
-                btn.classList.add('active');
-            }
+            if (state.showingOriginal) { span.textContent = 'Показать без фона'; btn.classList.remove('active'); }
+            else { span.textContent = 'Показать оригинал'; btn.classList.add('active'); }
         } else {
             btn.disabled = false;
             span.textContent = 'Вырезать фон';
@@ -223,19 +205,16 @@ const TokenEditor = {
 
     setupSliders() {
         const debouncedSave = debounce(() => TokenHistory.save(), CONFIG.DEBOUNCE_DELAY);
-
         const scaleSlider = $('scaleSlider');
         if (scaleSlider) {
             scaleSlider.oninput = e => {
                 state.imageScale = parseInt(e.target.value) / 100;
                 const input = $('scaleInput');
                 if (input) input.value = e.target.value;
-                TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
+                TokenCanvas.scheduleEffects(); TokenCanvas.render();
             };
             scaleSlider.onchange = debouncedSave;
         }
-
         const scaleInput = $('scaleInput');
         if (scaleInput) {
             scaleInput.onchange = e => {
@@ -244,24 +223,19 @@ const TokenEditor = {
                 const slider = $('scaleSlider');
                 if (slider) slider.value = val;
                 e.target.value = val;
-                TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
-                TokenHistory.save();
+                TokenCanvas.scheduleEffects(); TokenCanvas.render(); TokenHistory.save();
             };
         }
-
         const rotationSlider = $('rotationSlider');
         if (rotationSlider) {
             rotationSlider.oninput = e => {
                 state.imageRotation = parseInt(e.target.value);
                 const input = $('rotationInput');
                 if (input) input.value = e.target.value;
-                TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
+                TokenCanvas.scheduleEffects(); TokenCanvas.render();
             };
             rotationSlider.onchange = debouncedSave;
         }
-
         const rotationInput = $('rotationInput');
         if (rotationInput) {
             rotationInput.onchange = e => {
@@ -270,21 +244,15 @@ const TokenEditor = {
                 const slider = $('rotationSlider');
                 if (slider) slider.value = val;
                 e.target.value = val;
-                TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
-                TokenHistory.save();
+                TokenCanvas.scheduleEffects(); TokenCanvas.render(); TokenHistory.save();
             };
         }
-
         const resetTransformBtn = $('resetTransformBtn');
         if (resetTransformBtn) {
             resetTransformBtn.onclick = () => {
-                state.imageScale = 1;
-                state.imageRotation = 0;
-                TokenCanvas.updateScaleUI();
-                TokenCanvas.updateRotationUI();
-                TokenCanvas.render();
-                TokenHistory.save();
+                state.imageScale = 1; state.imageRotation = 0;
+                TokenCanvas.updateScaleUI(); TokenCanvas.updateRotationUI();
+                TokenCanvas.render(); TokenHistory.save();
                 toast('Трансформация сброшена');
             };
         }
@@ -300,7 +268,6 @@ const TokenEditor = {
                 TokenCanvas.render();
             };
         }
-
         const colorCorrectionCheck = $('colorCorrectionCheck');
         if (colorCorrectionCheck) {
             colorCorrectionCheck.onchange = e => {
@@ -310,29 +277,20 @@ const TokenEditor = {
                 TokenCanvas.render();
             };
         }
-
         this._setupDropShadowSettings();
         this._setupColorCorrectionSettings();
 
         const showErasedCheck = $('showErasedCheck');
-        if (showErasedCheck) {
-            showErasedCheck.onchange = e => { state.showErasedZones = e.target.checked; TokenCanvas.render(); };
-        }
+        if (showErasedCheck) showErasedCheck.onchange = e => { state.showErasedZones = e.target.checked; TokenCanvas.render(); };
 
         const showProtectionCheck = $('showProtectionCheck');
-        if (showProtectionCheck) {
-            showProtectionCheck.onchange = e => { state.showProtectionMask = e.target.checked; TokenCanvas.render(); };
-        }
+        if (showProtectionCheck) showProtectionCheck.onchange = e => { state.showProtectionMask = e.target.checked; TokenCanvas.render(); };
 
         const showBordersCheck = $('showBordersCheck');
-        if (showBordersCheck) {
-            showBordersCheck.onchange = e => { state.showScaleBorders = e.target.checked; TokenCanvas.render(); };
-        }
+        if (showBordersCheck) showBordersCheck.onchange = e => { state.showScaleBorders = e.target.checked; TokenCanvas.render(); };
 
         const saveQualitySelect = $('saveQualitySelect');
-        if (saveQualitySelect) {
-            saveQualitySelect.onchange = e => { state.saveQuality = parseInt(e.target.value); toast('Качество: ' + state.saveQuality + 'px'); };
-        }
+        if (saveQualitySelect) saveQualitySelect.onchange = e => { state.saveQuality = parseInt(e.target.value); toast('Качество: ' + state.saveQuality + 'px'); };
 
         const saveScaleSelect = $('saveScaleSelect');
         if (saveScaleSelect) {
@@ -347,7 +305,6 @@ const TokenEditor = {
         const quickSaveFolderRow = $('quickSaveFolderRow');
         const quickSaveFolderBtn = $('quickSaveFolderBtn');
         const quickSaveFolderName = $('quickSaveFolderName');
-
         if (quickSaveCheck) {
             quickSaveCheck.onchange = e => {
                 state.quickSaveEnabled = e.target.checked;
@@ -356,63 +313,35 @@ const TokenEditor = {
                 this.updatePortraitVisibility();
             };
         }
-
         if (quickSaveFolderBtn) quickSaveFolderBtn.onclick = () => this._pickSaveFolder(quickSaveFolderName);
     },
 
     _setupDropShadowSettings() {
         const sliders = [
-            { id: 'shadowAngle',    valId: 'shadowAngleVal',    key: 'angle',    factor: 1     },
-            { id: 'shadowDistance', valId: 'shadowDistanceVal', key: 'distance', factor: 1     },
-            { id: 'shadowBlur',     valId: 'shadowBlurVal',     key: 'blur',     factor: 1     },
-            { id: 'shadowOpacity',  valId: 'shadowOpacityVal',  key: 'opacity',  factor: 0.01  },
+            { id: 'shadowAngle',    valId: 'shadowAngleVal',    key: 'angle',   factor: 1    },
+            { id: 'shadowDistance', valId: 'shadowDistanceVal', key: 'distance',factor: 1    },
+            { id: 'shadowBlur',     valId: 'shadowBlurVal',     key: 'blur',    factor: 1    },
+            { id: 'shadowOpacity',  valId: 'shadowOpacityVal',  key: 'opacity', factor: 0.01 },
         ];
-
         const ds = AppConfig.dropShadow;
-        const initVals = {
-            shadowAngle: ds.angle,
-            shadowDistance: ds.distance,
-            shadowBlur: ds.blur,
-            shadowOpacity: Math.round(ds.opacity * 100)
-        };
-
+        const initVals = { shadowAngle: ds.angle, shadowDistance: ds.distance, shadowBlur: ds.blur, shadowOpacity: Math.round(ds.opacity * 100) };
         sliders.forEach(({ id, valId, key, factor }) => {
-            const el = $(id);
-            const valEl = $(valId);
+            const el = $(id); const valEl = $(valId);
             if (!el) return;
-
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
-
-            el.oninput = () => {
-                AppConfig.setDropShadow(key, parseFloat(el.value) * factor);
-                if (valEl) valEl.textContent = el.value;
-                TokenCanvas.render();
-            };
-
-            el.addEventListener('wheel', ev => {
-                ev.preventDefault();
-                const step = parseFloat(el.step) || 1;
-                el.value = clamp(parseFloat(el.value) + (ev.deltaY < 0 ? step : -step), parseFloat(el.min), parseFloat(el.max));
-                el.dispatchEvent(new Event('input'));
-            }, { passive: false });
+            el.oninput = () => { AppConfig.setDropShadow(key, parseFloat(el.value) * factor); if (valEl) valEl.textContent = el.value; TokenCanvas.render(); };
+            el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
-
         const resetBtn = $('shadowResetBtn');
         if (resetBtn) {
             resetBtn.onclick = () => {
                 AppConfig.resetDropShadow();
                 const ds2 = AppConfig.dropShadow;
-                $('shadowAngle').value = ds2.angle;
-                $('shadowDistance').value = ds2.distance;
-                $('shadowBlur').value = ds2.blur;
-                $('shadowOpacity').value = Math.round(ds2.opacity * 100);
-                sliders.forEach(({ id, valId }) => {
-                    const valEl = $(valId);
-                    if (valEl) valEl.textContent = $(id).value;
-                });
-                TokenCanvas.render();
-                toast('Тень сброшена');
+                $('shadowAngle').value = ds2.angle; $('shadowDistance').value = ds2.distance;
+                $('shadowBlur').value = ds2.blur; $('shadowOpacity').value = Math.round(ds2.opacity * 100);
+                sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
+                TokenCanvas.render(); toast('Тень сброшена');
             };
         }
     },
@@ -422,45 +351,24 @@ const TokenEditor = {
             { id: 'ccSaturation', valId: 'ccSaturationVal', key: 'saturation' },
             { id: 'ccLightness',  valId: 'ccLightnessVal',  key: 'lightness'  },
         ];
-
         const cc = AppConfig.colorCorrection;
         const initVals = { ccSaturation: cc.saturation, ccLightness: cc.lightness };
-
         sliders.forEach(({ id, valId, key }) => {
-            const el = $(id);
-            const valEl = $(valId);
+            const el = $(id); const valEl = $(valId);
             if (!el) return;
-
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
-
-            el.oninput = () => {
-                AppConfig.setColorCorrection(key, parseFloat(el.value));
-                if (valEl) valEl.textContent = el.value;
-                TokenCanvas.render();
-            };
-
-            el.addEventListener('wheel', ev => {
-                ev.preventDefault();
-                const step = parseFloat(el.step) || 1;
-                el.value = clamp(parseFloat(el.value) + (ev.deltaY < 0 ? step : -step), parseFloat(el.min), parseFloat(el.max));
-                el.dispatchEvent(new Event('input'));
-            }, { passive: false });
+            el.oninput = () => { AppConfig.setColorCorrection(key, parseFloat(el.value)); if (valEl) valEl.textContent = el.value; TokenCanvas.render(); };
+            el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
-
         const resetBtn = $('ccResetBtn');
         if (resetBtn) {
             resetBtn.onclick = () => {
                 AppConfig.resetColorCorrection();
                 const cc2 = AppConfig.colorCorrection;
-                $('ccSaturation').value = cc2.saturation;
-                $('ccLightness').value = cc2.lightness;
-                sliders.forEach(({ id, valId }) => {
-                    const valEl = $(valId);
-                    if (valEl) valEl.textContent = $(id).value;
-                });
-                TokenCanvas.render();
-                toast('Цветокоррекция сброшена');
+                $('ccSaturation').value = cc2.saturation; $('ccLightness').value = cc2.lightness;
+                sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
+                TokenCanvas.render(); toast('Цветокоррекция сброшена');
             };
         }
     },
@@ -495,21 +403,14 @@ const TokenEditor = {
     handleKeyDown(e) {
         const isTokenMode = $('tokenPanel')?.classList.contains('active');
         if (!isTokenMode) return;
-
         const tag = e.target.tagName.toLowerCase();
         const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
         const code = e.code;
         const hk = AppConfig.hotkeys;
-
         if (e.ctrlKey && code === hk.undo && !e.shiftKey) { e.preventDefault(); TokenHistory.undo(); return; }
         if ((e.ctrlKey && code === hk.redo) || (e.ctrlKey && e.shiftKey && code === hk.undo)) { e.preventDefault(); TokenHistory.redo(); return; }
-
-        if (!isInput && state.userImage && ROTATE_KEYS.includes(code) && !e.ctrlKey) {
-            e.preventDefault(); this.handleRotateKey(code); return;
-        }
-        if (!isInput && state.userImage && MOVE_KEYS.includes(code)) {
-            e.preventDefault(); this.handleMoveKey(code);
-        }
+        if (!isInput && state.userImage && ROTATE_KEYS.includes(code) && !e.ctrlKey) { e.preventDefault(); this.handleRotateKey(code); return; }
+        if (!isInput && state.userImage && MOVE_KEYS.includes(code)) { e.preventDefault(); this.handleMoveKey(code); }
     },
 
     handleKeyUp(e) {
@@ -517,19 +418,14 @@ const TokenEditor = {
         if (ROTATE_KEYS.includes(code)) {
             this.pressedKeys.delete(code);
             if (!this.pressedKeys.has('KeyQ') && !this.pressedKeys.has('KeyE')) {
-                this.clearRotateTimers();
-                this.initialRotateDone = false;
+                this.clearRotateTimers(); this.initialRotateDone = false;
                 if (state.userImage) TokenHistory.save();
             }
         }
         if (MOVE_KEYS.includes(code)) {
             this.pressedKeys.delete(code);
             const hasMovementKeys = MOVE_KEYS.some(k => this.pressedKeys.has(k));
-            if (!hasMovementKeys) {
-                this.clearMoveTimers();
-                this.initialMoveDone = false;
-                if (state.userImage) TokenHistory.save();
-            }
+            if (!hasMovementKeys) { this.clearMoveTimers(); this.initialMoveDone = false; if (state.userImage) TokenHistory.save(); }
         }
     },
 
@@ -558,9 +454,7 @@ const TokenEditor = {
                 this.moveByKeys(1);
                 this.initialMoveDone = true;
                 this.moveTimeout = setTimeout(() => {
-                    if (this.pressedKeys.size > 0) {
-                        this.moveInterval = setInterval(() => this.moveByKeys(CONFIG.MOVE_STEP), 50);
-                    }
+                    if (this.pressedKeys.size > 0) this.moveInterval = setInterval(() => this.moveByKeys(CONFIG.MOVE_STEP), 50);
                 }, 500);
             }
         }
@@ -572,9 +466,7 @@ const TokenEditor = {
         state.imageRotation += direction * step;
         if (state.imageRotation > 180) state.imageRotation -= 360;
         if (state.imageRotation < -180) state.imageRotation += 360;
-        TokenCanvas.updateRotationUI();
-        TokenCanvas.scheduleEffects();
-        TokenCanvas.render();
+        TokenCanvas.updateRotationUI(); TokenCanvas.scheduleEffects(); TokenCanvas.render();
     },
 
     moveByKeys(step = CONFIG.MOVE_STEP) {
@@ -588,13 +480,13 @@ const TokenEditor = {
     },
 
     clearRotateTimers() {
-        if (this.rotateTimeout)  { clearTimeout(this.rotateTimeout);   this.rotateTimeout  = null; }
-        if (this.rotateInterval) { clearInterval(this.rotateInterval);  this.rotateInterval = null; }
+        if (this.rotateTimeout)  { clearTimeout(this.rotateTimeout);  this.rotateTimeout  = null; }
+        if (this.rotateInterval) { clearInterval(this.rotateInterval); this.rotateInterval = null; }
     },
 
     clearMoveTimers() {
-        if (this.moveTimeout)  { clearTimeout(this.moveTimeout);   this.moveTimeout  = null; }
-        if (this.moveInterval) { clearInterval(this.moveInterval);  this.moveInterval = null; }
+        if (this.moveTimeout)  { clearTimeout(this.moveTimeout);  this.moveTimeout  = null; }
+        if (this.moveInterval) { clearInterval(this.moveInterval); this.moveInterval = null; }
     },
 
     _pickSaveFolder(nameEl) {

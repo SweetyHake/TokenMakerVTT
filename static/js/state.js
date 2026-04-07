@@ -55,8 +55,5 @@ var state = {
     historyIndex: -1,
     _rawProtectionMaskImg: null,
     protectionMask: null,
-    erasableCanvas: null,
-    _erasableMaskOffset: 0,
-    _erasableMaskSize: 0,
-    imageMaskCanvas: null
+    erasableCanvas: null
 };

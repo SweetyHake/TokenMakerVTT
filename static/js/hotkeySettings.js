@@ -12,7 +12,6 @@ const HotkeySettings = {
         const container = $('hotkeysEditorTable');
         if (!container) return;
         container.innerHTML = '';
-
         Object.entries(HOTKEYS_META).forEach(([action, meta]) => {
             const row = document.createElement('div');
             row.className = 'hotkey-editor-row';
@@ -51,10 +50,7 @@ const HotkeySettings = {
     },
 
     _stopListening() {
-        if (this._listeningEl) {
-            this._listeningEl.classList.remove('listening');
-            this._listeningEl = null;
-        }
+        if (this._listeningEl) { this._listeningEl.classList.remove('listening'); this._listeningEl = null; }
         this._listeningAction = null;
     },
 
@@ -62,16 +58,11 @@ const HotkeySettings = {
         if (!this._listeningAction) return;
         if (e.code === 'Escape') { this._stopListening(); return; }
         if (['Control','Shift','Alt','Meta'].includes(e.key)) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        const action = this._listeningAction;
-        const btn = this._listeningEl;
-
-        AppConfig.setHotkey(action, e.code);
-        btn.textContent = codeToLabel(e.code);
+        e.preventDefault(); e.stopPropagation();
+        AppConfig.setHotkey(this._listeningAction, e.code);
+        this._listeningEl.textContent = codeToLabel(e.code);
         this._stopListening();
+        TokenEditor.updateToolHotkeys();
         toast('Клавиша назначена: ' + codeToLabel(e.code));
     },
 
@@ -81,6 +72,7 @@ const HotkeySettings = {
         btn.onclick = () => {
             AppConfig.resetHotkeys();
             this._renderTable();
+            TokenEditor.updateToolHotkeys();
             toast('Горячие клавиши сброшены');
         };
     }

@@ -614,52 +614,35 @@ var TokenCanvas = {
     },
 
     applyEraserBrushToPinkMask: function(cx, cy, restore) {
-        if (!this.eraserBrush) return;
+        if (!this.eraserBrush || !state.maskCanvas) return;
         var brush = this.eraserBrush;
         var maskCtx = state.maskCanvas.getContext('2d');
         var drawX = Math.round(cx - brush.fullSize / 2);
         var drawY = Math.round(cy - brush.fullSize / 2);
 
-        if (restore) {
-            var restoreCanvas = document.createElement('canvas');
-            restoreCanvas.width = brush.fullSize;
-            restoreCanvas.height = brush.fullSize;
-            var restoreCtx = restoreCanvas.getContext('2d');
-            restoreCtx.drawImage(brush.canvas, 0, 0);
+        var workCanvas = document.createElement('canvas');
+        workCanvas.width = brush.fullSize;
+        workCanvas.height = brush.fullSize;
+        var workCtx = workCanvas.getContext('2d');
+        workCtx.drawImage(brush.canvas, 0, 0);
 
-            if (state.erasableCanvas) {
-                restoreCtx.globalCompositeOperation = 'destination-in';
-                restoreCtx.drawImage(
-                    state.erasableCanvas,
-                    drawX, drawY, brush.fullSize, brush.fullSize,
-                    0, 0, brush.fullSize, brush.fullSize
-                );
-                restoreCtx.globalCompositeOperation = 'source-over';
-            }
-
-            maskCtx.globalCompositeOperation = 'source-over';
-            maskCtx.drawImage(restoreCanvas, drawX, drawY);
-        } else {
-            var eraseCanvas = document.createElement('canvas');
-            eraseCanvas.width = brush.fullSize;
-            eraseCanvas.height = brush.fullSize;
-            var eraseCtx = eraseCanvas.getContext('2d');
-            eraseCtx.drawImage(brush.canvas, 0, 0);
-
-            if (state.erasableCanvas) {
-                eraseCtx.globalCompositeOperation = 'destination-in';
-                eraseCtx.drawImage(
-                    state.erasableCanvas,
-                    drawX, drawY, brush.fullSize, brush.fullSize,
-                    0, 0, brush.fullSize, brush.fullSize
-                );
-                eraseCtx.globalCompositeOperation = 'source-over';
-            }
-
-            maskCtx.globalCompositeOperation = 'destination-out';
-            maskCtx.drawImage(eraseCanvas, drawX, drawY);
-            maskCtx.globalCompositeOperation = 'source-over';
+        if (state.erasableCanvas) {
+            workCtx.globalCompositeOperation = 'destination-out';
+            workCtx.drawImage(
+                state.erasableCanvas,
+                drawX, drawY, brush.fullSize, brush.fullSize,
+                0, 0, brush.fullSize, brush.fullSize
+            );
+            workCtx.globalCompositeOperation = 'source-over';
         }
+
+        if (restore) {
+            maskCtx.globalCompositeOperation = 'source-over';
+        } else {
+            maskCtx.globalCompositeOperation = 'destination-out';
+        }
+        maskCtx.drawImage(workCanvas, drawX, drawY);
+        maskCtx.globalCompositeOperation = 'source-over';
 
         this._zonesDirty = true;
     },
@@ -677,46 +660,82 @@ var TokenCanvas = {
         var drawX = Math.round(imgPos.x - imgBrush.fullSize / 2);
         var drawY = Math.round(imgPos.y - imgBrush.fullSize / 2);
 
-        if (restore) {
-            var restoreCanvas = document.createElement('canvas');
-            restoreCanvas.width = imgBrush.fullSize;
-            restoreCanvas.height = imgBrush.fullSize;
-            var restoreCtx = restoreCanvas.getContext('2d');
-            restoreCtx.drawImage(imgBrush.canvas, 0, 0);
+        var workCanvas = document.createElement('canvas');
+        workCanvas.width = imgBrush.fullSize;
+        workCanvas.height = imgBrush.fullSize;
+        var workCtx = workCanvas.getContext('2d');
+        workCtx.drawImage(imgBrush.canvas, 0, 0);
 
-            if (state.imageMaskProtection) {
-                restoreCtx.globalCompositeOperation = 'destination-in';
-                restoreCtx.drawImage(
-                    state.imageMaskProtection,
-                    drawX, drawY, imgBrush.fullSize, imgBrush.fullSize,
-                    0, 0, imgBrush.fullSize, imgBrush.fullSize
-                );
-                restoreCtx.globalCompositeOperation = 'source-over';
-            }
+        if (state.erasableCanvas) {
+            var internalSize = this.internalSize;
+            var scale = internalSize / 1024;
+            var effectiveScale = state.imageScale * scale;
+            var imgCx = internalSize / 2 + state.imageX * scale;
+            var imgCy = internalSize / 2 + state.imageY * scale;
+            var cos = Math.cos(state.imageRotation * Math.PI / 180);
+            var sin = Math.sin(state.imageRotation * Math.PI / 180);
 
-            maskCtx.globalCompositeOperation = 'source-over';
-            maskCtx.drawImage(restoreCanvas, drawX, drawY);
-        } else {
-            var eraseCanvas = document.createElement('canvas');
-            eraseCanvas.width = imgBrush.fullSize;
-            eraseCanvas.height = imgBrush.fullSize;
-            var eraseCtx = eraseCanvas.getContext('2d');
-            eraseCtx.drawImage(imgBrush.canvas, 0, 0);
+            var canvasBrushW = imgBrush.fullSize * effectiveScale;
+            var canvasBrushH = imgBrush.fullSize * effectiveScale;
 
-            if (state.imageMaskProtection) {
-                eraseCtx.globalCompositeOperation = 'destination-in';
-                eraseCtx.drawImage(
-                    state.imageMaskProtection,
-                    drawX, drawY, imgBrush.fullSize, imgBrush.fullSize,
-                    0, 0, imgBrush.fullSize, imgBrush.fullSize
-                );
-                eraseCtx.globalCompositeOperation = 'source-over';
-            }
+            var imgCornerX = imgPos.x - imgBrush.fullSize / 2;
+            var imgCornerY = imgPos.y - imgBrush.fullSize / 2;
+            var relX = imgCornerX - state.userImage.width / 2;
+            var relY = imgCornerY - state.userImage.height / 2;
+            var rotX = cos * relX - sin * relY;
+            var rotY = sin * relX + cos * relY;
+            var canvasCornerX = imgCx + rotX * effectiveScale;
+            var canvasCornerY = imgCy + rotY * effectiveScale;
 
-            maskCtx.globalCompositeOperation = 'destination-out';
-            maskCtx.drawImage(eraseCanvas, drawX, drawY);
-            maskCtx.globalCompositeOperation = 'source-over';
+            var protCanvas = document.createElement('canvas');
+            protCanvas.width = imgBrush.fullSize;
+            protCanvas.height = imgBrush.fullSize;
+            var protCtx = protCanvas.getContext('2d');
+
+            protCtx.save();
+            protCtx.translate(-imgCornerX, -imgCornerY);
+
+            var invScale = 1 / effectiveScale;
+            protCtx.scale(invScale, invScale);
+
+            protCtx.translate(-canvasCornerX + imgCornerX, -canvasCornerY + imgCornerY);
+
+            protCtx.save();
+            protCtx.translate(imgCx, imgCy);
+            protCtx.rotate(state.imageRotation * Math.PI / 180);
+            protCtx.scale(effectiveScale, effectiveScale);
+            protCtx.translate(-state.userImage.width / 2, -state.userImage.height / 2);
+            protCtx.drawImage(state.erasableCanvas, 0, 0, internalSize, internalSize,
+                -imgCornerX, -imgCornerY, internalSize / effectiveScale, internalSize / effectiveScale);
+            protCtx.restore();
+            protCtx.restore();
+
+            var protSampler = document.createElement('canvas');
+            protSampler.width = imgBrush.fullSize;
+            protSampler.height = imgBrush.fullSize;
+            var psCtx = protSampler.getContext('2d');
+            psCtx.save();
+            var cosInv = Math.cos(-state.imageRotation * Math.PI / 180);
+            var sinInv = Math.sin(-state.imageRotation * Math.PI / 180);
+            psCtx.translate(imgBrush.fullSize / 2, imgBrush.fullSize / 2);
+            psCtx.rotate(-state.imageRotation * Math.PI / 180);
+            psCtx.scale(invScale, invScale);
+            psCtx.translate(-(cx), -(cy));
+            psCtx.drawImage(state.erasableCanvas, 0, 0);
+            psCtx.restore();
+
+            workCtx.globalCompositeOperation = 'destination-out';
+            workCtx.drawImage(protSampler, 0, 0);
+            workCtx.globalCompositeOperation = 'source-over';
         }
+
+        if (restore) {
+            maskCtx.globalCompositeOperation = 'source-over';
+        } else {
+            maskCtx.globalCompositeOperation = 'destination-out';
+        }
+        maskCtx.drawImage(workCanvas, drawX, drawY);
+        maskCtx.globalCompositeOperation = 'source-over';
 
         this._invalidateComposite();
     },

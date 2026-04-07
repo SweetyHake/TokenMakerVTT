@@ -1,50 +1,73 @@
 const TokenPresets = {
-    processMaskImage(img, size) {
-        if (!size) size = TokenCanvas.internalSize;
+    buildProtectionCanvasFromImg(img, internalSize) {
+        const maskDisplaySize = CONFIG.SCALE_SIZES[1];
+        const offset = Math.round((internalSize - maskDisplaySize) / 2);
 
-        const src = document.createElement('canvas');
-        src.width = img.naturalWidth || img.width;
-        src.height = img.naturalHeight || img.height;
-        const srcCtx = src.getContext('2d');
-        srcCtx.drawImage(img, 0, 0);
-        const srcData = srcCtx.getImageData(0, 0, src.width, src.height);
+        const srcW = img.naturalWidth || img.width;
+        const srcH = img.naturalHeight || img.height;
+
+        const scaledMask = document.createElement('canvas');
+        scaledMask.width = maskDisplaySize;
+        scaledMask.height = maskDisplaySize;
+        const sCtx = scaledMask.getContext('2d');
+        sCtx.drawImage(img, 0, 0, srcW, srcH, 0, 0, maskDisplaySize, maskDisplaySize);
+        const srcData = sCtx.getImageData(0, 0, maskDisplaySize, maskDisplaySize);
         const sd = srcData.data;
 
-        const out = document.createElement('canvas');
-        out.width = size;
-        out.height = size;
-        const outCtx = out.getContext('2d');
+        const protCanvas = document.createElement('canvas');
+        protCanvas.width = internalSize;
+        protCanvas.height = internalSize;
+        const pCtx = protCanvas.getContext('2d');
+        const protData = pCtx.createImageData(internalSize, internalSize);
+        const pd = protData.data;
 
-        const result = outCtx.createImageData(size, size);
-        const rd = result.data;
+        for (let y = 0; y < internalSize; y++) {
+            for (let x = 0; x < internalSize; x++) {
+                const mx = x - offset;
+                const my = y - offset;
+                const oi = (y * internalSize + x) * 4;
 
-        const scaleX = src.width / size;
-        const scaleY = src.height / size;
+                if (mx < 0 || my < 0 || mx >= maskDisplaySize || my >= maskDisplaySize) {
+                    pd[oi] = 0; pd[oi+1] = 0; pd[oi+2] = 0; pd[oi+3] = 0;
+                    continue;
+                }
 
-        for (let y = 0; y < size; y++) {
-            for (let x = 0; x < size; x++) {
-                const sx = Math.min(Math.floor(x * scaleX), src.width - 1);
-                const sy = Math.min(Math.floor(y * scaleY), src.height - 1);
-                const si = (sy * src.width + sx) * 4;
+                const si = (my * maskDisplaySize + mx) * 4;
+                const a = sd[si + 3];
+                const brightness = (sd[si] + sd[si+1] + sd[si+2]) / 3;
+                const isProtected = a > 16 && brightness < 220;
 
-                const alpha = sd[si + 3];
-                const r = sd[si];
-                const g = sd[si + 1];
-                const b = sd[si + 2];
-                const brightness = (r + g + b) / 3;
-
-                const isProtected = alpha > 16 && brightness < 220;
-
-                const oi = (y * size + x) * 4;
-                rd[oi]     = 255;
-                rd[oi + 1] = 255;
-                rd[oi + 2] = 255;
-                rd[oi + 3] = isProtected ? 0 : 255;
+                pd[oi]   = 255;
+                pd[oi+1] = 255;
+                pd[oi+2] = 255;
+                pd[oi+3] = isProtected ? 255 : 0;
             }
         }
 
-        outCtx.putImageData(result, 0, 0);
-        return out;
+        pCtx.putImageData(protData, 0, 0);
+        return protCanvas;
+    },
+
+    processMaskImage(img, size) {
+        if (!size) size = TokenCanvas.internalSize;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        const imgData = ctx.getImageData(0, 0, size, size);
+        const result = ctx.createImageData(size, size);
+        const d = imgData.data;
+        const r = result.data;
+        for (let i = 0; i < d.length; i += 4) {
+            const a = d[i+3];
+            const brightness = (d[i] + d[i+1] + d[i+2]) / 3;
+            const isProtected = a > 16 && brightness < 220;
+            r[i] = 255; r[i+1] = 255; r[i+2] = 255;
+            r[i+3] = isProtected ? 0 : 255;
+        }
+        ctx.putImageData(result, 0, 0);
+        return canvas;
     },
 
     loadProtectionMask() {
@@ -53,101 +76,41 @@ const TokenPresets = {
             const maskUrl = urlManager.create(blob, 'protection-mask');
             img.onload = () => {
                 state._rawProtectionMaskImg = img;
-                this._buildErasableCanvas();
+                this._rebuildErasableCanvas();
             };
             img.src = maskUrl;
-        }).catch(() => {});
+        }).catch(() => {
+            state._rawProtectionMaskImg = null;
+            this._rebuildErasableCanvas();
+        });
     },
 
     reloadProtectionMaskForScale() {
-        this._buildErasableCanvas();
+        this._rebuildErasableCanvas();
         TokenCanvas._imageBrushCache = null;
     },
 
-    _buildErasableCanvas() {
+    _rebuildErasableCanvas() {
         const img = state._rawProtectionMaskImg;
         const internalSize = TokenCanvas.internalSize;
 
-        const erasable = document.createElement('canvas');
-        erasable.width = internalSize;
-        erasable.height = internalSize;
-        const ctx = erasable.getContext('2d');
-
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, internalSize, internalSize);
-
-        if (img) {
-            const maskDisplaySize = CONFIG.SCALE_SIZES[1];
-            const maskOffset = Math.round((internalSize - maskDisplaySize) / 2);
-            const processed = this.processMaskImage(img, maskDisplaySize);
-            ctx.drawImage(processed, maskOffset, maskOffset);
-        }
-
-        state.protectionMask = erasable;
-        state.erasableCanvas = erasable;
-        state._erasableMaskOffset = img ? Math.round((internalSize - CONFIG.SCALE_SIZES[1]) / 2) : 0;
-        state._erasableMaskSize = img ? CONFIG.SCALE_SIZES[1] : internalSize;
-
-        this._buildImageMaskProtection(img);
-    },
-    
-    _buildImageMaskProtection(img) {
-        if (!state.userImage || !img) {
-            state.imageMaskProtection = null;
+        if (!img) {
+            const c = document.createElement('canvas');
+            c.width = internalSize;
+            c.height = internalSize;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, internalSize, internalSize);
+            state.erasableCanvas = null;
+            state.protectionMask = null;
             return;
         }
 
-        const imgW = state.userImage.width;
-        const imgH = state.userImage.height;
-        const internalSize = TokenCanvas.internalSize;
-        const scale = internalSize / 1024;
-        const effectiveScale = state.imageScale * scale;
-
-        const cx = internalSize / 2 + state.imageX * scale;
-        const cy = internalSize / 2 + state.imageY * scale;
-        const maskDisplaySize = CONFIG.SCALE_SIZES[1];
-        const maskOffset = Math.round((internalSize - maskDisplaySize) / 2);
-
-        const protection = document.createElement('canvas');
-        protection.width = imgW;
-        protection.height = imgH;
-        const ctx = protection.getContext('2d');
-
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, imgW, imgH);
-
-        const processedMask = this.processMaskImage(img, maskDisplaySize);
-
-        const mCanvas = document.createElement('canvas');
-        mCanvas.width = imgW;
-        mCanvas.height = imgH;
-        const mCtx = mCanvas.getContext('2d');
-
-        mCtx.save();
-        mCtx.translate(imgW / 2, imgH / 2);
-        mCtx.rotate(-state.imageRotation * Math.PI / 180);
-        mCtx.scale(1 / effectiveScale, 1 / effectiveScale);
-        mCtx.translate(-cx, -cy);
-        mCtx.drawImage(processedMask, maskOffset, maskOffset);
-        mCtx.restore();
-
-        const mData = mCtx.getImageData(0, 0, imgW, imgH);
-        const pData = ctx.getImageData(0, 0, imgW, imgH);
-        const md = mData.data;
-        const pd = pData.data;
-
-        for (let i = 0; i < md.length; i += 4) {
-            const isErasable = md[i + 3] > 128;
-            pd[i]     = 255;
-            pd[i + 1] = 255;
-            pd[i + 2] = 255;
-            pd[i + 3] = isErasable ? 255 : 0;
-        }
-
-        ctx.putImageData(pData, 0, 0);
-        state.imageMaskProtection = protection;
+        const protCanvas = this.buildProtectionCanvasFromImg(img, internalSize);
+        state.protectionMask = protCanvas;
+        state.erasableCanvas = protCanvas;
     },
-    
+
     loadPresets() {
         const presetNames = ['preset1', 'preset2', 'preset3'];
         presetNames.forEach((name, index) => {
@@ -172,9 +135,7 @@ const TokenPresets = {
     updateButtons() {
         const container = $('presetButtons');
         if (!container) return;
-
         container.innerHTML = '';
-
         state.eraserPresets.forEach((preset, index) => {
             if (preset) {
                 const btn = document.createElement('button');
@@ -188,23 +149,18 @@ const TokenPresets = {
 
     apply(index) {
         if (!state.eraserPresets[index] || !state.maskCanvas) return;
-
         const maskCtx = state.maskCanvas.getContext('2d');
-
         maskCtx.globalCompositeOperation = 'source-over';
         maskCtx.fillStyle = 'white';
         maskCtx.fillRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
-
         maskCtx.globalCompositeOperation = 'destination-in';
         maskCtx.drawImage(state.eraserPresets[index], 0, 0);
         maskCtx.globalCompositeOperation = 'source-over';
-
         state.currentPreset = index;
         this.updateButtons();
         TokenHistory.save();
         TokenCanvas.render();
         toast(`Пресет ${index + 1} применён`);
-
         const pinkBtn = document.querySelector('.eraser-mode-btn[data-mode="pink"]');
         if (pinkBtn) pinkBtn.click();
     },
@@ -216,7 +172,6 @@ const TokenPresets = {
                 const container = $('ringSelectorList');
                 if (!container) return;
                 container.innerHTML = '';
-
                 if (rings.length === 0) {
                     const empty = document.createElement('div');
                     empty.className = 'ring-empty';
@@ -224,34 +179,25 @@ const TokenPresets = {
                     container.appendChild(empty);
                     return;
                 }
-
                 rings.forEach((ring, index) => {
                     const item = document.createElement('div');
                     item.className = 'ring-item';
                     if (index === 0) item.classList.add('active');
                     item.dataset.ringName = ring.name;
-
                     const img = document.createElement('img');
                     img.src = `/ring_file/${encodeURIComponent(ring.file)}`;
                     img.alt = ring.name;
-
                     const label = document.createElement('span');
                     label.textContent = ring.name;
-
                     item.appendChild(img);
                     item.appendChild(label);
-
                     item.onclick = () => {
                         document.querySelectorAll('.ring-item, .ring-item-none').forEach(i => i.classList.remove('active'));
                         item.classList.add('active');
                         this.loadSingleRing(ring.file);
                     };
-
                     container.appendChild(item);
-
-                    if (index === 0) {
-                        this.loadSingleRing(ring.file);
-                    }
+                    if (index === 0) this.loadSingleRing(ring.file);
                 });
             })
             .catch(() => {});
@@ -277,10 +223,7 @@ const TokenPresets = {
             fetch(`/ring?size=${size}`).then(r => r.blob()).then(blob => {
                 const img = new Image();
                 const url = URL.createObjectURL(blob);
-                img.onload = () => {
-                    state.ringImages[size] = img;
-                    resolve(img);
-                };
+                img.onload = () => { state.ringImages[size] = img; resolve(img); };
                 img.onerror = () => resolve(null);
                 img.src = url;
             }).catch(() => resolve(null));
