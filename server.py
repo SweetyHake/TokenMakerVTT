@@ -65,8 +65,35 @@ def load_session():
             raise FileNotFoundError(f"Файл не найден: {ONNX_PATH}")
         providers = get_providers()
         print(f"Загрузка на {DEVICE_NAME}...")
-        SESSION = ort.InferenceSession(str(ONNX_PATH), providers=providers)
-        print(" Готово!\n")
+
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = max(1, os.cpu_count() // 2)
+        opts.enable_mem_pattern = True
+        opts.enable_mem_reuse = True
+        opts.add_session_config_entry("session.disable_prepacking", "0")
+
+        SESSION = ort.InferenceSession(
+            str(ONNX_PATH),
+            sess_options=opts,
+            providers=providers
+        )
+
+        print(f" Прогрев модели...")
+        try:
+            dummy = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
+            input_name = SESSION.get_inputs()[0].name
+            SESSION.run(None, {input_name: dummy})
+            del dummy
+            import gc
+            gc.collect()
+            print(f" Прогрев завершён.")
+        except Exception as e:
+            print(f" Прогрев не удался: {e}")
+
+        print(f" Готово!\n")
     return SESSION
 
 
@@ -82,29 +109,69 @@ def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
 
 
 def remove_background(image, edge_blur=1):
+    import psutil, os as _os, gc
+    proc = psutil.Process(_os.getpid())
+
+    def mem():
+        return proc.memory_info().rss / 1024 / 1024
+
     session = load_session()
     orig_size = image.size
+    print(f"  [RAM] старт обработки: {mem():.0f} МБ | размер входа: {image.size}")
+
     if image.mode != 'RGB':
         image = image.convert('RGB')
-    img = image.resize((1024, 1024), Image.LANCZOS)
-    arr = np.array(img).astype(np.float32) / 255.0
-    arr = (arr - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
+
+    img_resized = image.resize((1024, 1024), Image.LANCZOS)
+    print(f"  [RAM] после resize: {mem():.0f} МБ")
+
+    arr = np.array(img_resized, dtype=np.float32) / 255.0
+    del img_resized
+    gc.collect()
+    print(f"  [RAM] после numpy arr: {mem():.0f} МБ")
+
+    arr -= np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    arr /= np.array([0.229, 0.224, 0.225], dtype=np.float32)
     arr = arr.transpose(2, 0, 1)
-    tensor = np.expand_dims(arr, 0).astype(np.float32)
+
+    tensor = arr[np.newaxis]
     input_name = session.get_inputs()[0].name
+
+    print(f"  [RAM] перед инференсом: {mem():.0f} МБ")
     output = session.run(None, {input_name: tensor})
+    print(f"  [RAM] после инференса: {mem():.0f} МБ")
+
+    del tensor, arr
+    gc.collect()
+    print(f"  [RAM] после del tensor: {mem():.0f} МБ")
+
     mask = output[0]
+    del output
+    gc.collect()
+    print(f"  [RAM] после del output: {mem():.0f} МБ")
+
     while mask.ndim > 2:
         mask = mask.squeeze(0)
     if mask.ndim == 3:
         mask = mask[0]
-    mask = 1 / (1 + np.exp(-mask))
-    mask = ((mask - mask.min()) / (mask.max() - mask.min() + 1e-8) * 255).astype(np.uint8)
+
+    mask = 1.0 / (1.0 + np.exp(-mask))
+    mn, mx = mask.min(), mask.max()
+    mask = ((mask - mn) / (mx - mn + 1e-8) * 255).astype(np.uint8)
+
     mask_pil = Image.fromarray(mask, mode='L')
+    del mask
+    gc.collect()
+
     mask_pil = mask_pil.resize(orig_size, Image.LANCZOS)
     mask_pil = refine_mask(mask_pil, edge_blur)
+
     result = image.convert('RGBA')
     result.putalpha(mask_pil)
+    del mask_pil
+    gc.collect()
+
+    print(f"  [RAM] финал: {mem():.0f} МБ")
     return result
 
 
@@ -222,6 +289,47 @@ def example():
 
 
 @app.route('/process', methods=['POST'])
+def process():
+    import gc
+
+    if 'image' not in request.files:
+        return jsonify({'error': 'Нет изображения'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'Файл не выбран'}), 400
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Недопустимый формат файла'}), 400
+
+    format_type = request.form.get('format', 'webp')
+    if format_type not in ('webp', 'png', 'jpg'):
+        format_type = 'webp'
+    try:
+        quality = min(100, max(10, int(request.form.get('quality', 90))))
+    except (ValueError, TypeError):
+        quality = 90
+    try:
+        edge_blur = min(10, max(0, float(request.form.get('edge_blur', 1))))
+    except (ValueError, TypeError):
+        edge_blur = 1.0
+
+    try:
+        image = Image.open(file.stream)
+        image.load()
+        image = validate_image(image)
+        result = remove_background(image, edge_blur)
+        del image
+        gc.collect()
+
+        buffer, mime = save_image(result, format_type, quality)
+        del result
+        gc.collect()
+
+        return send_file(buffer, mimetype=mime, as_attachment=False,
+                        download_name=f'result.{format_type}')
+    except Exception as e:
+        gc.collect()
+        app.logger.error('process error: %s', e, exc_info=True)
+        return jsonify({'error': 'Ошибка обработки изображения'}), 500
 def process():
     if 'image' not in request.files:
         return jsonify({'error': 'Нет изображения'}), 400
