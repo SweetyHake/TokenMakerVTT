@@ -655,14 +655,23 @@ var TokenCanvas = {
 
         var internalSize = this.internalSize;
         var scale = internalSize / 1024;
+
         var w = state.userImage.width * state.imageScale * scale;
         var h = state.userImage.height * state.imageScale * scale;
         var cx = internalSize / 2 + state.imageX * scale;
         var cy = internalSize / 2 + state.imageY * scale;
-        var left = cx - w / 2;
-        var top = cy - h / 2;
-        var right = cx + w / 2;
-        var bottom = cy + h / 2;
+
+        var angle = state.imageRotation * Math.PI / 180;
+        var cos = Math.abs(Math.cos(angle));
+        var sin = Math.abs(Math.sin(angle));
+
+        var aabbW = w * cos + h * sin;
+        var aabbH = w * sin + h * cos;
+
+        var left   = cx - aabbW / 2;
+        var top    = cy - aabbH / 2;
+        var right  = cx + aabbW / 2;
+        var bottom = cy + aabbH / 2;
 
         for (var s = 3; s >= 2; s--) {
             var limitSize = CONFIG.SCALE_SIZES[s] * (internalSize / CONFIG.SCALE_SIZES[3]);
