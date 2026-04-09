@@ -555,3 +555,76 @@ if __name__ == '__main__':
         print("http://localhost:7878")
         print("=" * 50 + "\n")
         app.run(host='0.0.0.0', port=7878, debug=False, threaded=True)
+
+@app.route('/save_file', methods=['POST'])
+def save_file():
+    import tkinter as tk
+    from tkinter import filedialog
+
+    suggested = request.form.get('filename', 'file.webp')
+    ext = suggested.rsplit('.', 1)[-1].lower() if '.' in suggested else 'webp'
+    mime_map = {'webp': 'WebP Image', 'png': 'PNG Image', 'jpg': 'JPEG Image'}
+    label = mime_map.get(ext, 'File')
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file'}), 400
+
+    data = request.files['file'].read()
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    path = filedialog.asksaveasfilename(
+        initialfile=suggested,
+        defaultextension='.' + ext,
+        filetypes=[(label, '*.' + ext), ('All files', '*.*')]
+    )
+    root.destroy()
+
+    if not path:
+        return jsonify({'cancelled': True})
+
+    try:
+        Path(path).write_bytes(data)
+        return jsonify({'saved': True, 'path': path})
+    except Exception as ex:
+        return jsonify({'error': str(ex)}), 500
+
+@app.route('/pick_folder', methods=['GET'])
+def pick_folder():
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    path = filedialog.askdirectory()
+    root.destroy()
+
+    if not path:
+        return jsonify({'cancelled': True})
+
+    return jsonify({'path': path})
+
+@app.route('/save_to_folder', methods=['POST'])
+def save_to_folder():
+    folder = request.form.get('folder', '')
+    filename = request.form.get('filename', 'file.webp')
+
+    if not folder:
+        return jsonify({'error': 'No folder'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file'}), 400
+
+    folder_path = Path(folder)
+    if not folder_path.exists() or not folder_path.is_dir():
+        return jsonify({'error': 'Invalid folder'}), 400
+
+    data = request.files['file'].read()
+    out = folder_path / Path(filename).name
+
+    try:
+        out.write_bytes(data)
+        return jsonify({'saved': True, 'path': str(out)})
+    except Exception as ex:
+        return jsonify({'error': str(ex)}), 500

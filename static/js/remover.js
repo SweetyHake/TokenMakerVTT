@@ -349,35 +349,19 @@ const Remover = {
         saveFileWithPicker(data.blob, data.name);
     },
     
-    downloadAll() {
+    async downloadAll() {
         if (state.results.size === 0) return;
-
         const entries = Array.from(state.results.entries());
 
-        if (window.showDirectoryPicker) {
-            window.showDirectoryPicker({ mode: 'readwrite' }).then(dirHandle => {
-                const saves = entries.map(([id, data]) => {
-                    return dirHandle.getFileHandle(data.name, { create: true })
-                        .then(fh => fh.createWritable())
-                        .then(w => w.write(data.blob).then(() => w.close()));
-                });
-                return Promise.all(saves);
-            }).then(() => {
-                toast('Сохранено ' + entries.length + ' файлов');
-            }).catch(err => {
-                if (err.name !== 'AbortError') toast('Ошибка: ' + err.message, true);
-            });
-            return;
-        }
+        const folderPath = await pickFolder();
+        if (!folderPath) return;
 
-        entries.forEach(([id, data]) => {
-            const a = document.createElement('a');
-            const url = urlManager.create(data.blob, id + '_dl');
-            a.href = url;
-            a.download = data.name;
-            a.click();
-        });
-        toast('Скачано ' + entries.length + ' файлов');
+        let saved = 0;
+        for (const [id, data] of entries) {
+            const ok = await saveToFolder(data.blob, data.name, folderPath);
+            if (ok) saved++;
+        }
+        toast('Сохранено ' + saved + ' файлов');
     },
     
     clearAll() {

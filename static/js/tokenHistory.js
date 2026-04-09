@@ -12,7 +12,15 @@ const TokenHistory = {
         if (!state.maskCanvas) return;
 
         if (state.historyIndex < state.history.length - 1) {
-            state.history = state.history.slice(0, state.historyIndex + 1);
+            const removed = state.history.splice(state.historyIndex + 1);
+            removed.forEach(entry => {
+                if (entry.mask) {
+                    entry.mask.getContext('2d').clearRect(0, 0, entry.mask.width, entry.mask.height);
+                }
+                if (entry.imageMask) {
+                    entry.imageMask.getContext('2d').clearRect(0, 0, entry.imageMask.width, entry.imageMask.height);
+                }
+            });
         }
 
         state.history.push({
@@ -25,7 +33,9 @@ const TokenHistory = {
         });
 
         if (state.history.length > CONFIG.MAX_HISTORY) {
-            state.history.shift();
+            const old = state.history.shift();
+            if (old.mask) old.mask.getContext('2d').clearRect(0, 0, old.mask.width, old.mask.height);
+            if (old.imageMask) old.imageMask.getContext('2d').clearRect(0, 0, old.imageMask.width, old.imageMask.height);
             state.historyIndex = state.history.length - 1;
         } else {
             state.historyIndex++;
@@ -89,6 +99,10 @@ const TokenHistory = {
     },
 
     init() {
+        state.history.forEach(entry => {
+            if (entry.mask) entry.mask.getContext('2d').clearRect(0, 0, entry.mask.width, entry.mask.height);
+            if (entry.imageMask) entry.imageMask.getContext('2d').clearRect(0, 0, entry.imageMask.width, entry.imageMask.height);
+        });
         state.history = [];
         state.historyIndex = -1;
         this.save();

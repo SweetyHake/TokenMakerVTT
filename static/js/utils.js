@@ -37,38 +37,48 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
-function saveFileWithPicker(blob, suggestedName, mimeType) {
-    if (window.showSaveFilePicker) {
-        var ext = suggestedName.split('.').pop().toLowerCase();
-        var mimeMap = {
-            'webp': 'image/webp',
-            'png':  'image/png',
-            'jpg':  'image/jpeg',
-            'jpeg': 'image/jpeg'
-        };
-        var mime = mimeMap[ext] || mimeType || 'application/octet-stream';
-        var extLabel = ext.toUpperCase() + ' Image';
+async function saveFileWithPicker(blob, suggestedName) {
+    const fd = new FormData();
+    fd.append('file', blob, suggestedName);
+    fd.append('filename', suggestedName);
 
-        return window.showSaveFilePicker({
-            suggestedName: suggestedName,
-            types: [{ description: extLabel, accept: { [mime]: ['.' + ext] } }]
-        }).then(function(fileHandle) {
-            return fileHandle.createWritable();
-        }).then(function(writable) {
-            return writable.write(blob).then(function() { return writable.close(); });
-        }).then(function() {
-            toast('Сохранено: ' + suggestedName);
-        }).catch(function(err) {
-            if (err.name !== 'AbortError') toast('Ошибка: ' + err.message, true);
-        });
+    try {
+        const res = await fetch('/save_file', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (json.cancelled) return;
+        if (json.error) { toast('Ошибка: ' + json.error, true); return; }
+        toast('Сохранено: ' + suggestedName);
+    } catch(e) {
+        toast('Ошибка сохранения', true);
     }
+}
 
-    var a = document.createElement('a');
-    var url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = suggestedName;
-    a.click();
-    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-    toast('Сохранено: ' + suggestedName);
-    return Promise.resolve();
+async function pickFolder() {
+    try {
+        const res = await fetch('/pick_folder');
+        const json = await res.json();
+        if (json.cancelled || !json.path) return null;
+        return json.path;
+    } catch(e) {
+        toast('Ошибка выбора папки', true);
+        return null;
+    }
+}
+
+async function saveToFolder(blob, filename, folderPath) {
+    const fd = new FormData();
+    fd.append('file', blob, filename);
+    fd.append('filename', filename);
+    fd.append('folder', folderPath);
+
+    try {
+        const res = await fetch('/save_to_folder', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (json.error) { toast('Ошибка: ' + json.error, true); return false; }
+        toast('Сохранено: ' + filename);
+        return true;
+    } catch(e) {
+        toast('Ошибка сохранения', true);
+        return false;
+    }
 }

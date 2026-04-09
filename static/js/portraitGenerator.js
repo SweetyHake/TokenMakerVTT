@@ -145,15 +145,14 @@ const PortraitGenerator = {
     },
 
     getImage() {
-        return state.userImage || null;
+        return state.userImageWithoutBg || state.userImageOriginal || null;
     },
 
     render() {
         if (!this.ctx) return;
         const size = this.SIZE;
 
-        this.ctx.fillStyle = '#1a1a1a';
-        this.ctx.fillRect(0, 0, size, size);
+        this.ctx.clearRect(0, 0, size, size);
 
         const img = this.getImage();
         if (!img) {
@@ -175,32 +174,30 @@ const PortraitGenerator = {
     },
 
     renderForSave() {
-        const size = this.SIZE;
+        const quality = state.saveQuality || 512;
         const out = document.createElement('canvas');
-        out.width = size;
-        out.height = size;
-        const ctx = out.getContext('2d', { alpha: false });
+        out.width = quality;
+        out.height = quality;
+        const ctx = out.getContext('2d', { alpha: true });
 
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, size, size);
+        ctx.clearRect(0, 0, quality, quality);
 
         const img = this.getImage();
         if (!img) return out;
 
-        if (state.userImage && TokenCanvas._compositedImageCache && !TokenCanvas._compositedImageDirty) {
-            const src = TokenCanvas._compositedImageCache;
-            ctx.save();
-            ctx.translate(size / 2 + this.imageX, size / 2 + this.imageY);
-            ctx.rotate(this.imageRotation * Math.PI / 180);
-            ctx.drawImage(src, -src.width * this.imageScale / 2, -src.height * this.imageScale / 2, src.width * this.imageScale, src.height * this.imageScale);
-            ctx.restore();
-        } else {
-            ctx.save();
-            ctx.translate(size / 2 + this.imageX, size / 2 + this.imageY);
-            ctx.rotate(this.imageRotation * Math.PI / 180);
-            ctx.drawImage(img, -img.width * this.imageScale / 2, -img.height * this.imageScale / 2, img.width * this.imageScale, img.height * this.imageScale);
-            ctx.restore();
-        }
+        const ratio = quality / this.SIZE;
+
+        ctx.save();
+        ctx.translate(quality / 2 + this.imageX * ratio, quality / 2 + this.imageY * ratio);
+        ctx.rotate(this.imageRotation * Math.PI / 180);
+        ctx.drawImage(
+            img,
+            -img.width * this.imageScale * ratio / 2,
+            -img.height * this.imageScale * ratio / 2,
+            img.width * this.imageScale * ratio,
+            img.height * this.imageScale * ratio
+        );
+        ctx.restore();
 
         return out;
     },
@@ -233,35 +230,23 @@ const PortraitGenerator = {
     },
 
     async pickFolder() {
-        if (!window.showDirectoryPicker) { toast('Браузер не поддерживает выбор папки', true); return; }
-        try {
-            const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
-            this.saveFolder = dir;
-            const nameEl = $('portraitFolderName');
-            if (nameEl) nameEl.textContent = dir.name;
-            toast('Папка выбрана: ' + dir.name);
-        } catch (e) {
-            if (e.name !== 'AbortError') toast('Ошибка выбора папки', true);
-        }
+        const path = await pickFolder();
+        if (!path) return;
+        this.saveFolder = path;
+        const nameEl = $('portraitFolderName');
+        if (nameEl) nameEl.textContent = path.split(/[\\/]/).pop() || path;
+        toast('Папка выбрана: ' + path);
     },
 
     async save() {
         const out = this.renderForSave();
-        const fileName = (state.tokenFileName || 'token').trim() + '_portrait.webp';
+        const fileName = (state.tokenFileName || 'token').trim() + '.webp';
         const blob = await new Promise(resolve => out.toBlob(resolve, 'image/webp', 0.95));
 
         if (this.saveFolder) {
-            try {
-                const fh = await this.saveFolder.getFileHandle(fileName, { create: true });
-                const w = await fh.createWritable();
-                await w.write(blob);
-                await w.close();
-                toast('Сохранено: ' + fileName);
-            } catch (e) {
-                toast('Ошибка сохранения: ' + e.message, true);
-            }
+            await saveToFolder(blob, fileName, this.saveFolder);
         } else {
-            await saveFileWithPicker(blob, fileName, 'image/webp');
+            await saveFileWithPicker(blob, fileName);
         }
     }
 };

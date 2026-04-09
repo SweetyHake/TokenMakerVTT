@@ -134,56 +134,81 @@ const TokenEditor = {
                 toast('Показан без фона');
             }
             TokenCanvas._compositedImageDirty = true;
+            TokenCanvas._ccDirty = true;
             TokenCanvas.render();
             if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) PortraitGenerator.render();
             return;
         }
         if (!state.userImageOriginal) return;
+
         toast('Удаление фона...');
         btn.disabled = true;
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span><kbd>${codeToLabel(AppConfig.hotkeys.toolRemoveBg)}</kbd>`;
+        const kbd = btn.querySelector('kbd');
+        const kbdText = kbd ? kbd.outerHTML : '';
+        const originalSpanText = btn.querySelector('span')?.textContent || 'Вырезать фон';
+        btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span>${kbdText}`;
+
         try {
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = state.userImageOriginal.width;
             tempCanvas.height = state.userImageOriginal.height;
             tempCanvas.getContext('2d').drawImage(state.userImageOriginal, 0, 0);
             const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/png'));
+            tempCanvas.getContext('2d').clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+
             const fd = new FormData();
             fd.append('image', blob, 'image.png');
             fd.append('format', 'png');
             const res = await fetch('/process', { method: 'POST', body: fd });
             if (!res.ok) throw new Error('Ошибка обработки');
             const resultBlob = await res.blob();
+
+            if (state.userImageUrl) {
+                URL.revokeObjectURL(state.userImageUrl);
+                state.userImageUrl = null;
+            }
+
             const url = URL.createObjectURL(resultBlob);
             const newImage = new Image();
+
             newImage.onload = () => {
-                if (state.userImageUrl) URL.revokeObjectURL(state.userImageUrl);
                 state.userImageUrl = url;
                 state.userImageWithoutBg = newImage;
                 state.userImage = newImage;
                 state.backgroundRemoved = true;
                 state.showingOriginal = false;
+
                 if (state.imageMaskCanvas) {
                     const ctx = state.imageMaskCanvas.getContext('2d');
                     ctx.clearRect(0, 0, state.imageMaskCanvas.width, state.imageMaskCanvas.height);
                     ctx.fillStyle = 'white';
                     ctx.fillRect(0, 0, state.imageMaskCanvas.width, state.imageMaskCanvas.height);
                 }
+
                 TokenCanvas._compositedImageDirty = true;
+                TokenCanvas._ccDirty = true;
                 TokenCanvas._imageBrushCache = null;
+
+                btn.disabled = false;
+                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg><span>Показать оригинал</span>${kbdText}`;
+                btn.classList.add('active');
                 this.updateRemoveBgButton();
                 TokenHistory.save();
                 TokenCanvas.render();
                 if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) PortraitGenerator.render();
                 toast('Фон удалён!');
             };
-            newImage.onerror = () => { URL.revokeObjectURL(url); throw new Error('Не удалось загрузить результат'); };
+
+            newImage.onerror = () => {
+                URL.revokeObjectURL(url);
+                throw new Error('Не удалось загрузить результат');
+            };
+
             newImage.src = url;
         } catch (err) {
             toast('Ошибка: ' + err.message, true);
             btn.disabled = false;
-            btn.innerHTML = originalHTML;
+            btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg><span>${originalSpanText}</span>${kbdText}`;
         }
     },
 
@@ -211,7 +236,9 @@ const TokenEditor = {
                 state.imageScale = parseInt(e.target.value) / 100;
                 const input = $('scaleInput');
                 if (input) input.value = e.target.value;
-                TokenCanvas.scheduleEffects(); TokenCanvas.render();
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.render();
             };
             scaleSlider.onchange = debouncedSave;
         }
@@ -223,7 +250,10 @@ const TokenEditor = {
                 const slider = $('scaleSlider');
                 if (slider) slider.value = val;
                 e.target.value = val;
-                TokenCanvas.scheduleEffects(); TokenCanvas.render(); TokenHistory.save();
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.render();
+                TokenHistory.save();
             };
         }
         const rotationSlider = $('rotationSlider');
@@ -232,7 +262,9 @@ const TokenEditor = {
                 state.imageRotation = parseInt(e.target.value);
                 const input = $('rotationInput');
                 if (input) input.value = e.target.value;
-                TokenCanvas.scheduleEffects(); TokenCanvas.render();
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.render();
             };
             rotationSlider.onchange = debouncedSave;
         }
@@ -244,16 +276,23 @@ const TokenEditor = {
                 const slider = $('rotationSlider');
                 if (slider) slider.value = val;
                 e.target.value = val;
-                TokenCanvas.scheduleEffects(); TokenCanvas.render(); TokenHistory.save();
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.render();
+                TokenHistory.save();
             };
         }
         const resetTransformBtn = $('resetTransformBtn');
         if (resetTransformBtn) {
             resetTransformBtn.onclick = () => {
-                state.imageScale = 1; state.imageRotation = 0;
-                TokenCanvas.updateScaleUI(); TokenCanvas.updateRotationUI();
-                TokenCanvas.render(); TokenHistory.save();
-                toast('Трансформация сброшена');
+                state.imageScale = 1;
+                state.imageRotation = 0;
+                TokenCanvas.updateScaleUI();
+                TokenCanvas.updateRotationUI();
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.render();
+                TokenHistory.save();
+                toast('Transform reset');
             };
         }
     },
@@ -265,6 +304,7 @@ const TokenEditor = {
                 state.dropShadowEnabled = e.target.checked;
                 const settings = $('dropShadowSettings');
                 if (settings) settings.style.display = state.dropShadowEnabled ? 'flex' : 'none';
+                TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
             };
         }
@@ -274,6 +314,7 @@ const TokenEditor = {
                 state.colorCorrectionEnabled = e.target.checked;
                 const settings = $('colorCorrectionSettings');
                 if (settings) settings.style.display = state.colorCorrectionEnabled ? 'flex' : 'none';
+                TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
             };
         }
@@ -330,7 +371,12 @@ const TokenEditor = {
             if (!el) return;
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
-            el.oninput = () => { AppConfig.setDropShadow(key, parseFloat(el.value) * factor); if (valEl) valEl.textContent = el.value; TokenCanvas.render(); };
+            el.oninput = () => { 
+                AppConfig.setDropShadow(key, parseFloat(el.value) * factor); 
+                if (valEl) valEl.textContent = el.value; 
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.render(); 
+            };
             el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
         const resetBtn = $('shadowResetBtn');
@@ -341,7 +387,9 @@ const TokenEditor = {
                 $('shadowAngle').value = ds2.angle; $('shadowDistance').value = ds2.distance;
                 $('shadowBlur').value = ds2.blur; $('shadowOpacity').value = Math.round(ds2.opacity * 100);
                 sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
-                TokenCanvas.render(); toast('Тень сброшена');
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.render(); 
+                toast('Тень сброшена');
             };
         }
     },
@@ -358,7 +406,12 @@ const TokenEditor = {
             if (!el) return;
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
-            el.oninput = () => { AppConfig.setColorCorrection(key, parseFloat(el.value)); if (valEl) valEl.textContent = el.value; TokenCanvas.render(); };
+            el.oninput = () => { 
+                AppConfig.setColorCorrection(key, parseFloat(el.value)); 
+                if (valEl) valEl.textContent = el.value; 
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.render(); 
+            };
             el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
         const resetBtn = $('ccResetBtn');
@@ -368,7 +421,9 @@ const TokenEditor = {
                 const cc2 = AppConfig.colorCorrection;
                 $('ccSaturation').value = cc2.saturation; $('ccLightness').value = cc2.lightness;
                 sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
-                TokenCanvas.render(); toast('Цветокоррекция сброшена');
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.render(); 
+                toast('Цветокоррекция сброшена');
             };
         }
     },
@@ -489,12 +544,11 @@ const TokenEditor = {
         if (this.moveInterval) { clearInterval(this.moveInterval); this.moveInterval = null; }
     },
 
-    _pickSaveFolder(nameEl) {
-        if (!window.showDirectoryPicker) { toast('Браузер не поддерживает выбор папки', true); return; }
-        window.showDirectoryPicker({ mode: 'readwrite' }).then(dirHandle => {
-            state.quickSaveFolder = dirHandle;
-            if (nameEl) nameEl.textContent = dirHandle.name;
-            toast('Папка выбрана: ' + dirHandle.name);
-        }).catch(() => {});
+    async _pickSaveFolder(nameEl) {
+        const path = await pickFolder();
+        if (!path) return;
+        state.quickSaveFolder = path;
+        if (nameEl) nameEl.textContent = path.split(/[\\/]/).pop() || path;
+        toast('Папка выбрана: ' + path);
     }
 };
