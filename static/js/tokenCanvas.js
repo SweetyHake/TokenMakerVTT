@@ -677,13 +677,16 @@ var TokenCanvas = {
     updateViewTransform: function() {
         if (!this.canvas) return;
 
-        var displaySide = parseFloat(this.canvas.style.width) || this.canvas.offsetWidth || 800;
         var area = this.canvas.parentElement;
-        var areaW = area ? area.clientWidth : displaySide;
-        var areaH = area ? area.clientHeight : displaySide;
+        var areaW = area ? area.clientWidth : 800;
+        var areaH = area ? area.clientHeight : 600;
 
-        var maxPanX = (areaW / 2) / state.viewZoom;
-        var maxPanY = (areaH / 2) / state.viewZoom;
+        var displaySide = parseFloat(this.canvas.style.width) || this.canvas.offsetWidth || areaW;
+
+        var scaledSize = displaySide * state.viewZoom;
+
+        var maxPanX = Math.max(0, (scaledSize - areaW) / 2 / state.viewZoom) + areaW * 0.25 / state.viewZoom;
+        var maxPanY = Math.max(0, (scaledSize - areaH) / 2 / state.viewZoom) + areaH * 0.25 / state.viewZoom;
 
         state.viewPanX = clamp(state.viewPanX, -maxPanX, maxPanX);
         state.viewPanY = clamp(state.viewPanY, -maxPanY, maxPanY);
