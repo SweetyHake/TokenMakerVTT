@@ -655,33 +655,71 @@ var TokenCanvas = {
 
         var internalSize = this.internalSize;
         var scale = internalSize / 1024;
+        var s3 = CONFIG.SCALE_SIZES[3];
 
-        var w = state.userImage.width * state.imageScale * scale;
-        var h = state.userImage.height * state.imageScale * scale;
+        var scanCanvas = document.createElement('canvas');
+        scanCanvas.width = internalSize;
+        scanCanvas.height = internalSize;
+        var sCtx = scanCanvas.getContext('2d');
+
+        this._buildCompositedImage();
+
+        var w  = state.userImage.width  * state.imageScale * scale;
+        var h  = state.userImage.height * state.imageScale * scale;
         var cx = internalSize / 2 + state.imageX * scale;
         var cy = internalSize / 2 + state.imageY * scale;
-
         var angle = state.imageRotation * Math.PI / 180;
-        var cos = Math.abs(Math.cos(angle));
-        var sin = Math.abs(Math.sin(angle));
 
-        var aabbW = w * cos + h * sin;
-        var aabbH = w * sin + h * cos;
+        sCtx.save();
+        sCtx.translate(cx, cy);
+        sCtx.rotate(angle);
+        sCtx.drawImage(this._compositedImageCache, -w / 2, -h / 2, w, h);
+        sCtx.restore();
 
-        var left   = cx - aabbW / 2;
-        var top    = cy - aabbH / 2;
-        var right  = cx + aabbW / 2;
-        var bottom = cy + aabbH / 2;
+        sCtx.globalCompositeOperation = 'destination-in';
+        sCtx.drawImage(state.maskCanvas, 0, 0);
+        sCtx.globalCompositeOperation = 'source-over';
 
-        for (var s = 3; s >= 2; s--) {
-            var limitSize = CONFIG.SCALE_SIZES[s] * (internalSize / CONFIG.SCALE_SIZES[3]);
-            var limitOffset = (internalSize - limitSize) / 2;
-            if (left < limitOffset || top < limitOffset || right > limitOffset + limitSize || bottom > limitOffset + limitSize) {
+        var data = sCtx.getImageData(0, 0, internalSize, internalSize).data;
+
+        scanCanvas.width = 1;
+        scanCanvas.height = 1;
+
+        var minX = internalSize, minY = internalSize, maxX = -1, maxY = -1;
+        var threshold = 15;
+
+        for (var y = 0; y < internalSize; y++) {
+            for (var x = 0; x < internalSize; x++) {
+                if (data[(y * internalSize + x) * 4 + 3] > threshold) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        if (maxX === -1) return 1;
+
+        for (var s = 1; s <= 3; s++) {
+            var borderSize   = CONFIG.SCALE_SIZES[s] * (internalSize / s3);
+            var borderOffset = (internalSize - borderSize) / 2;
+            var borderEnd    = borderOffset + borderSize;
+
+            if (
+                minX >= borderOffset &&
+                minY >= borderOffset &&
+                maxX <= borderEnd   &&
+                maxY <= borderEnd
+            ) {
                 return s;
             }
         }
-        return 1;
+
+        return 3;
     },
+
+    _getVisibleBounds: function() {},
 
     updateViewTransform: function() {
         if (!this.canvas) return;
