@@ -1,3 +1,4 @@
 model.onnx
 /.vibe_backups
 /__pycache__
+config.json
