@@ -292,7 +292,7 @@ const TokenEditor = {
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
                 TokenHistory.save();
-                toast('Transform reset');
+                toast('Трансформация сброшена');
             };
         }
     },
@@ -434,6 +434,13 @@ const TokenEditor = {
         const saveWithRingBtn = $('saveWithRing');
         if (saveWithRingBtn) saveWithRingBtn.onclick = () => TokenCanvas.save(true);
         this.updateRemoveBgButton();
+
+        const lastQuickSave = AppConfig.lastFolders.quickSave;
+        if (lastQuickSave) {
+            state.quickSaveFolder = lastQuickSave;
+            const nameEl = $('quickSaveFolderName');
+            if (nameEl) nameEl.textContent = lastQuickSave.split(/[\\/]/).pop() || lastQuickSave;
+        }
     },
 
     setupPortraitVisibility() {
@@ -548,6 +555,7 @@ const TokenEditor = {
         const path = await pickFolder();
         if (!path) return;
         state.quickSaveFolder = path;
+        AppConfig.setLastFolder('quickSave', path);
         if (nameEl) nameEl.textContent = path.split(/[\\/]/).pop() || path;
         toast('Папка выбрана: ' + path);
     }

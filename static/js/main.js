@@ -126,7 +126,8 @@ function initSliderWheels() {
     });
 }
 
-function init() {
+async function init() {
+    await AppConfig.load();
     initTabs();
     initSectionCollapse();
     initGlobalShortcuts();

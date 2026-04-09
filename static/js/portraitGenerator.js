@@ -20,9 +20,16 @@ const PortraitGenerator = {
     init() {
         this.canvas = $('portraitCanvas');
         if (!this.canvas) return;
-        this.ctx = this.canvas.getContext('2d', { alpha: false });
+        this.ctx = this.canvas.getContext('2d', { alpha: true });
         this.canvas.width = this.SIZE;
         this.canvas.height = this.SIZE;
+
+        const lastFolder = AppConfig.lastFolders.portrait;
+        if (lastFolder) {
+            this.saveFolder = lastFolder;
+            const nameEl = $('portraitFolderName');
+            if (nameEl) nameEl.textContent = lastFolder.split(/[\\/]/).pop() || lastFolder;
+        }
 
         this._applyDisplaySize();
         this.setupEvents();
@@ -233,6 +240,7 @@ const PortraitGenerator = {
         const path = await pickFolder();
         if (!path) return;
         this.saveFolder = path;
+        AppConfig.setLastFolder('portrait', path);
         const nameEl = $('portraitFolderName');
         if (nameEl) nameEl.textContent = path.split(/[\\/]/).pop() || path;
         toast('Папка выбрана: ' + path);

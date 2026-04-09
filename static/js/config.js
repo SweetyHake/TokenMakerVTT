@@ -44,31 +44,33 @@ const HOTKEYS_META = {
 };
 
 const AppConfig = {
-    STORAGE_KEY: 'tokenmaker_config',
     _data: null,
+    _saveTimeout: null,
 
     _defaults() {
         return {
             hotkeys: { ...DEFAULT_HOTKEYS },
-            dropShadow: { angle: -45, distance: 10, blur: 10, opacity: 0.75 },
-            colorCorrection: { saturation: 5, lightness: -5 }
+            dropShadow: { angle: 135, distance: 7, blur: 3, opacity: 0.40 },
+            colorCorrection: { saturation: 5, lightness: -5 },
+            lastFolders: {
+                quickSave: null,
+                portrait: null,
+                remover: null
+            }
         };
     },
 
-    load() {
+    async load() {
         try {
-            const raw = localStorage.getItem(this.STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                const def = this._defaults();
-                this._data = {
-                    hotkeys: { ...def.hotkeys, ...(parsed.hotkeys || {}) },
-                    dropShadow: { ...def.dropShadow, ...(parsed.dropShadow || {}) },
-                    colorCorrection: { ...def.colorCorrection, ...(parsed.colorCorrection || {}) }
-                };
-            } else {
-                this._data = this._defaults();
-            }
+            const res = await fetch('/config');
+            const saved = await res.json();
+            const def = this._defaults();
+            this._data = {
+                hotkeys: { ...def.hotkeys, ...(saved.hotkeys || {}) },
+                dropShadow: { ...def.dropShadow, ...(saved.dropShadow || {}) },
+                colorCorrection: { ...def.colorCorrection, ...(saved.colorCorrection || {}) },
+                lastFolders: { ...def.lastFolders, ...(saved.lastFolders || {}) }
+            };
         } catch {
             this._data = this._defaults();
         }
@@ -76,22 +78,30 @@ const AppConfig = {
     },
 
     save() {
-        try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this._data)); } catch {}
+        if (this._saveTimeout) clearTimeout(this._saveTimeout);
+        this._saveTimeout = setTimeout(() => {
+            fetch('/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this._data)
+            }).catch(() => {});
+        }, 500);
     },
 
     get hotkeys() { return this._data.hotkeys; },
     get dropShadow() { return this._data.dropShadow; },
     get colorCorrection() { return this._data.colorCorrection; },
+    get lastFolders() { return this._data.lastFolders; },
 
     setHotkey(action, code) { this._data.hotkeys[action] = code; this.save(); },
     setDropShadow(key, val) { this._data.dropShadow[key] = val; this.save(); },
     setColorCorrection(key, val) { this._data.colorCorrection[key] = val; this.save(); },
+    setLastFolder(key, path) { this._data.lastFolders[key] = path; this.save(); },
+
     resetHotkeys() { this._data.hotkeys = { ...DEFAULT_HOTKEYS }; this.save(); },
     resetDropShadow() { this._data.dropShadow = this._defaults().dropShadow; this.save(); },
     resetColorCorrection() { this._data.colorCorrection = this._defaults().colorCorrection; this.save(); }
 };
-
-AppConfig.load();
 
 const MOVE_KEYS = ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
 const ROTATE_KEYS = ['KeyQ','KeyE'];

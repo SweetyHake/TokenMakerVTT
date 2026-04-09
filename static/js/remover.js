@@ -356,6 +356,8 @@ const Remover = {
         const folderPath = await pickFolder();
         if (!folderPath) return;
 
+        AppConfig.setLastFolder('remover', folderPath);
+
         let saved = 0;
         for (const [id, data] of entries) {
             const ok = await saveToFolder(data.blob, data.name, folderPath);

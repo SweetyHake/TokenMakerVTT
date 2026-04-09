@@ -628,3 +628,25 @@ def save_to_folder():
         return jsonify({'saved': True, 'path': str(out)})
     except Exception as ex:
         return jsonify({'error': str(ex)}), 500
+
+@app.route('/config', methods=['GET'])
+def get_config():
+    config_path = BASE_DIR / 'config.json'
+    if not config_path.exists():
+        return jsonify({})
+    try:
+        import json
+        return jsonify(json.loads(config_path.read_text(encoding='utf-8')))
+    except Exception:
+        return jsonify({})
+
+@app.route('/config', methods=['POST'])
+def save_config():
+    import json
+    config_path = BASE_DIR / 'config.json'
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify({'ok': True})
+    except Exception as ex:
+        return jsonify({'error': str(ex)}), 500
