@@ -56,6 +56,11 @@ const AppConfig = {
                 quickSave: null,
                 portrait: null,
                 remover: null
+            },
+            example: {
+                enabled: false,
+                opacity: 50,
+                scaleMode: 2
             }
         };
     },
@@ -69,7 +74,8 @@ const AppConfig = {
                 hotkeys: { ...def.hotkeys, ...(saved.hotkeys || {}) },
                 dropShadow: { ...def.dropShadow, ...(saved.dropShadow || {}) },
                 colorCorrection: { ...def.colorCorrection, ...(saved.colorCorrection || {}) },
-                lastFolders: { ...def.lastFolders, ...(saved.lastFolders || {}) }
+                lastFolders: { ...def.lastFolders, ...(saved.lastFolders || {}) },
+                example: { ...def.example, ...(saved.example || {}) }
             };
         } catch {
             this._data = this._defaults();
@@ -99,6 +105,10 @@ const AppConfig = {
     setLastFolder(key, path) { this._data.lastFolders[key] = path; this.save(); },
 
     resetHotkeys() { this._data.hotkeys = { ...DEFAULT_HOTKEYS }; this.save(); },
+
+    setExample(key, val) { this._data.example[key] = val; this.save(); },
+
+    get example() { return this._data.example; },
     resetDropShadow() { this._data.dropShadow = this._defaults().dropShadow; this.save(); },
     resetColorCorrection() { this._data.colorCorrection = this._defaults().colorCorrection; this.save(); }
 };

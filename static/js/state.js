@@ -57,5 +57,9 @@ var state = {
     historyIndex: -1,
     _rawProtectionMaskImg: null,
     protectionMask: null,
-    erasableCanvas: null
+    erasableCanvas: null,
+    exampleEnabled: false,
+    exampleImage: null,
+    exampleOpacity: 0.5,
+    exampleScaleMode: 2
 };

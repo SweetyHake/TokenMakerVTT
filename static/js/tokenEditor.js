@@ -320,6 +320,7 @@ const TokenEditor = {
         }
         this._setupDropShadowSettings();
         this._setupColorCorrectionSettings();
+        this._setupExampleOverlay();
 
         const showErasedCheck = $('showErasedCheck');
         if (showErasedCheck) showErasedCheck.onchange = e => { state.showErasedZones = e.target.checked; TokenCanvas.render(); };
@@ -551,6 +552,126 @@ const TokenEditor = {
         if (this.moveInterval) { clearInterval(this.moveInterval); this.moveInterval = null; }
     },
 
+    _loadDefaultExample(fileNameEl) {
+        fetch('/example')
+            .then(r => {
+                if (!r.ok) throw new Error('not found');
+                return r.blob();
+            })
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const img = new Image();
+                img.onload = () => {
+                    state.exampleImage = img;
+                    if (fileNameEl) fileNameEl.textContent = 'example.png';
+                    TokenCanvas.render();
+                };
+                img.onerror = () => URL.revokeObjectURL(url);
+                img.src = url;
+            })
+            .catch(() => {
+                toast('Файл example.png не найден', true);
+            });
+    },
+
+    _setupExampleOverlay() {
+        const cfg = AppConfig.example;
+
+        const check = $('exampleCheck');
+        const settings = $('exampleSettings');
+        const opacitySlider = $('exampleOpacitySlider');
+        const opacityVal = $('exampleOpacityVal');
+        const scaleSelect = $('exampleScaleSelect');
+        const fileInput = $('exampleFileInput');
+        const fileBtn = $('exampleFileBtn');
+        const fileName = $('exampleFileName');
+
+        state.exampleEnabled = cfg.enabled;
+        state.exampleOpacity = cfg.opacity / 100;
+        state.exampleScaleMode = cfg.scaleMode;
+
+        if (check) check.checked = cfg.enabled;
+        if (settings) settings.style.display = cfg.enabled ? 'flex' : 'none';
+        if (opacitySlider) opacitySlider.value = cfg.opacity;
+        if (opacityVal) opacityVal.textContent = cfg.opacity;
+        if (scaleSelect) scaleSelect.value = cfg.scaleMode;
+
+        if (cfg.enabled && !state.exampleImage) {
+            this._loadDefaultExample(fileName);
+        }
+
+        const applyOpacity = val => {
+            val = clamp(parseInt(val), 0, 100);
+            state.exampleOpacity = val / 100;
+            if (opacitySlider) opacitySlider.value = val;
+            if (opacityVal) opacityVal.textContent = val;
+            AppConfig.setExample('opacity', val);
+            TokenCanvas.render();
+        };
+
+        if (check) {
+            check.onchange = e => {
+                state.exampleEnabled = e.target.checked;
+                if (settings) settings.style.display = state.exampleEnabled ? 'flex' : 'none';
+                if (state.exampleEnabled && !state.exampleImage) {
+                    this._loadDefaultExample(fileName);
+                }
+                AppConfig.setExample('enabled', state.exampleEnabled);
+                TokenCanvas.render();
+            };
+        }
+
+        if (opacitySlider) {
+            opacitySlider.oninput = e => applyOpacity(e.target.value);
+            opacitySlider.addEventListener('wheel', ev => {
+                ev.preventDefault();
+                opacitySlider.value = clamp(parseInt(opacitySlider.value) + (ev.deltaY < 0 ? 1 : -1), 0, 100);
+                opacitySlider.dispatchEvent(new Event('input'));
+            }, { passive: false });
+        }
+
+        if (scaleSelect) {
+            scaleSelect.onchange = e => {
+                state.exampleScaleMode = parseInt(e.target.value);
+                AppConfig.setExample('scaleMode', state.exampleScaleMode);
+                TokenCanvas.render();
+            };
+        }
+
+        if (fileBtn && fileInput) {
+            fileBtn.onclick = () => fileInput.click();
+            fileInput.onchange = e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    if (state._exampleCustomUrl) URL.revokeObjectURL(state._exampleCustomUrl);
+                    state._exampleCustomUrl = url;
+                    state.exampleImage = img;
+                    if (fileName) fileName.textContent = file.name;
+                    TokenCanvas.render();
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); toast('Не удалось загрузить файл', true); };
+                img.src = url;
+                fileInput.value = '';
+            };
+        }
+
+        const resetBtn = $('exampleResetBtn');
+        if (resetBtn) {
+            resetBtn.onclick = () => {
+                if (state._exampleCustomUrl) {
+                    URL.revokeObjectURL(state._exampleCustomUrl);
+                    state._exampleCustomUrl = null;
+                }
+                state.exampleImage = null;
+                if (fileName) fileName.textContent = 'example.png';
+                this._loadDefaultExample(fileName);
+            };
+        }
+    },
+
     async _pickSaveFolder(nameEl) {
         const path = await pickFolder();
         if (!path) return;
@@ -558,5 +679,6 @@ const TokenEditor = {
         AppConfig.setLastFolder('quickSave', path);
         if (nameEl) nameEl.textContent = path.split(/[\\/]/).pop() || path;
         toast('Папка выбрана: ' + path);
+
     }
 };

@@ -460,6 +460,20 @@ var TokenCanvas = {
             }
         }
 
+        if (state.exampleEnabled && state.exampleImage) {
+            var ex = state.exampleImage;
+            var exTargetPx = CONFIG.SCALE_SIZES[state.exampleScaleMode] || CONFIG.SCALE_SIZES[1];
+            var exRatio = exTargetPx / this.internalSize;
+            var exW = size * exRatio;
+            var exH = size * exRatio;
+            this.ctx.save();
+            this.ctx.globalAlpha = state.exampleOpacity;
+            this.ctx.imageSmoothingEnabled = true;
+            this.ctx.imageSmoothingQuality = 'high';
+            this.ctx.drawImage(ex, (size - exW) / 2, (size - exH) / 2, exW, exH);
+            this.ctx.restore();
+        }
+
         if (state.presetOverlayActive && state.presetOverlayCanvas) {
             var alpha = state._presetOverlayAlpha !== undefined ? state._presetOverlayAlpha : 0.6;
             this.ctx.globalAlpha = alpha;

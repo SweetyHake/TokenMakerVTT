@@ -155,6 +155,7 @@
 
     <div class="panel active" id="tokenPanel">
         <div class="workspace">
+
             <div class="sidebar sidebar-left">
 
                 <div class="section" id="sec-image">
@@ -214,8 +215,8 @@
                         <div class="eraser-controls" id="eraserRow" style="display:none;">
                             <div class="slider-row">
                                 <span class="slider-label">Размер</span>
-                                <input type="range" id="eraserSize" min="1" max="300" step="1" value="50">
-                                <input type="number" id="eraserSizeInput" class="slider-number" value="50" min="1" max="300">
+                                <input type="range" id="eraserSize" min="1" max="100" step="1" value="50">
+                                <input type="number" id="eraserSizeInput" class="slider-number" value="50" min="1" max="100">
                                 <span class="slider-unit">px</span>
                             </div>
                             <button class="link-btn" id="resetImageMask">
@@ -433,6 +434,56 @@
                             <button class="link-btn" id="ccResetBtn">
                                 <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                                 Сбросить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section" id="sec-example">
+                    <div class="section-header" data-toggle="sec-example">
+                        <div class="section-title">
+                            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                            Пример
+                        </div>
+                        <svg class="chevron collapsed" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                    </div>
+                    <div class="section-body collapsed">
+                        <div class="toggle-row">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="exampleCheck">
+                                <span class="toggle-track"></span>
+                            </label>
+                            <span>Показывать пример</span>
+                        </div>
+                        <div id="exampleSettings" style="display:none;flex-direction:column;gap:8px;">
+                            <div class="slider-row">
+                                <span class="slider-label">Прозрачность</span>
+                                <input type="range" id="exampleOpacitySlider" min="0" max="100" step="1" value="50">
+                                <span class="slider-value" id="exampleOpacityVal">50</span>
+                                <span class="slider-unit">%</span>
+                            </div>
+                            <div class="field-row">
+                                <span class="field-row-label">Масштаб:</span>
+                                <select class="compact-select" id="exampleScaleSelect">
+                                    <option value="1" selected>1× — 2048px</option>
+                                    <option value="2">2× — 4096px</option>
+                                    <option value="3">3× — 6144px</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">Файл примера</label>
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <span id="exampleFileName" style="flex:1;font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;">example.png</span>
+                                    <button class="ghost-btn" id="exampleFileBtn" style="padding:3px 7px;font-size:10.5px;flex-shrink:0;">
+                                        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                                        Файл
+                                    </button>
+                                </div>
+                                <input type="file" id="exampleFileInput" accept="image/*">
+                            </div>
+                            <button class="link-btn" id="exampleResetBtn">
+                                <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                                Сбросить к example.png
                             </button>
                         </div>
                     </div>
