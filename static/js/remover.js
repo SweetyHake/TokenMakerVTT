@@ -226,7 +226,6 @@ const Remover = {
             }
 
             const blob = await res.blob();
-            const mime = res.headers.get('Content-Type') || 'image/webp';
             const time = ((Date.now() - start) / 1000).toFixed(1);
 
             const ext = state.selectedFormat === 'jpg' ? 'jpg' : state.selectedFormat;
@@ -263,14 +262,27 @@ const Remover = {
                 </div>
             `;
 
+            const btnWrap = document.createElement('div');
+            btnWrap.style.cssText = 'display:flex;gap:4px;flex-shrink:0;';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'download-btn';
+            copyBtn.title = 'Копировать в буфер';
+            copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+            copyBtn.onclick = () => this.copyToClipboard(id);
+
             const dlBtn = document.createElement('button');
             dlBtn.className = 'download-btn';
+            dlBtn.title = 'Скачать';
             dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
             dlBtn.onclick = () => this.downloadOne(id);
 
+            btnWrap.appendChild(copyBtn);
+            btnWrap.appendChild(dlBtn);
+
             info.innerHTML = '';
             info.appendChild(infoText);
-            info.appendChild(dlBtn);
+            info.appendChild(btnWrap);
 
             this.updateDownloadAllBtn();
             this.updateResultsCount();
@@ -404,6 +416,31 @@ const Remover = {
         } else {
             dlBtn.style.display = 'none';
             clearBtn.style.display = 'none';
+        }
+    },
+    
+    async copyToClipboard(id) {
+        const data = state.results.get(id);
+        if (!data) return;
+
+        try {
+            let pngBlob = data.blob;
+            if (data.format !== 'png') {
+                const bitmap = await createImageBitmap(data.blob);
+                const canvas = document.createElement('canvas');
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+                pngBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            }
+            await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': pngBlob })
+            ]);
+            toast('Скопировано в буфер');
+        } catch {
+            toast('Не удалось скопировать', true);
         }
     },
     

@@ -165,22 +165,27 @@ def load_session():
 
 
 def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
-    import numpy as np
     from PIL import ImageFilter
+    import numpy as np
 
     mask_np = np.array(mask_pil).astype(np.float32) / 255.0
 
     low = threshold_low / 255.0
     high = threshold_high / 255.0
-
     mask_np = np.clip((mask_np - low) / (high - low + 1e-8), 0.0, 1.0)
-
     mask_np = mask_np ** 1.2
 
     mask_pil = Image.fromarray((mask_np * 255).astype(np.uint8), mode='L')
 
+    mask_pil = mask_pil.filter(ImageFilter.MinFilter(3))
+
+    mask_np = np.array(mask_pil).astype(np.float32) / 255.0
+    mask_np = np.where(mask_np < 0.15, 0.0, mask_np)
+    mask_np = np.where(mask_np > 0.92, 1.0, mask_np)
+    mask_pil = Image.fromarray((mask_np * 255).astype(np.uint8), mode='L')
+
     if edge_blur > 0:
-        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(edge_blur * 0.4))
+        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(edge_blur * 0.35))
 
     return mask_pil
 
@@ -244,8 +249,19 @@ def remove_background(image, edge_blur=1):
     mask_pil = refine_mask(mask_pil, edge_blur)
 
     result = image.convert('RGBA')
-    result.putalpha(mask_pil)
-    del mask_pil
+    rgba_np = np.array(result)
+    alpha_np = np.array(mask_pil)
+
+    white_penalty = (rgba_np[:, :, 0].astype(np.float32) * 0.299 +
+                     rgba_np[:, :, 1].astype(np.float32) * 0.587 +
+                     rgba_np[:, :, 2].astype(np.float32) * 0.114)
+    alpha_f = alpha_np.astype(np.float32)
+    suppress = (white_penalty > 220) & (alpha_f < 180)
+    alpha_f[suppress] = np.maximum(0, alpha_f[suppress] - (white_penalty[suppress] - 220) * 3.5)
+    rgba_np[:, :, 3] = np.clip(alpha_f, 0, 255).astype(np.uint8)
+
+    result = Image.fromarray(rgba_np, mode='RGBA')
+    del rgba_np, alpha_np, mask_pil
     gc.collect()
 
     print(f"  [RAM] финал: {mem():.0f} МБ")
