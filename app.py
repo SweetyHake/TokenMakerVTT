@@ -23,10 +23,24 @@ REG_ENTRIES = [
     ),
 ]
 
+DIR_REG_ENTRIES = [
+    (
+        r'Software\Classes\Directory\shell\TokenMaker_FolderToWebp',
+        'Конвертировать все изображения в WebP (Token Maker)',
+        '--folder-to-webp'
+    ),
+    (
+        r'Software\Classes\Directory\Background\shell\TokenMaker_FolderToWebp',
+        'Конвертировать все изображения в WebP (Token Maker)',
+        '--folder-to-webp'
+    ),
+]
+
 
 def register_context_menu():
     try:
         python_exe = sys.executable
+
         for reg_path, label, flag in REG_ENTRIES:
             key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path)
             winreg.SetValueEx(key, '', 0, winreg.REG_SZ, label)
@@ -39,6 +53,23 @@ def register_context_menu():
             cmd = f'"{python_exe}" "{HELPER_PATH}" {flag} "%1"'
             winreg.SetValueEx(cmd_key, '', 0, winreg.REG_SZ, cmd)
             winreg.CloseKey(cmd_key)
+
+        for reg_path, label, flag in DIR_REG_ENTRIES:
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, reg_path)
+            winreg.SetValueEx(key, '', 0, winreg.REG_SZ, label)
+            winreg.SetValueEx(key, 'Icon', 0, winreg.REG_SZ, python_exe)
+            winreg.CloseKey(key)
+
+            cmd_key = winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER, reg_path + r'\command'
+            )
+            if 'Background' in reg_path:
+                cmd = f'"{python_exe}" "{HELPER_PATH}" {flag} "%V"'
+            else:
+                cmd = f'"{python_exe}" "{HELPER_PATH}" {flag} "%1"'
+            winreg.SetValueEx(cmd_key, '', 0, winreg.REG_SZ, cmd)
+            winreg.CloseKey(cmd_key)
+
         print('Контекстное меню зарегистрировано.')
     except Exception as e:
         print(f'Не удалось зарегистрировать контекстное меню: {e}')
@@ -52,6 +83,14 @@ def unregister_context_menu():
                     winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
                 except FileNotFoundError:
                     pass
+
+        for reg_path, _, _ in DIR_REG_ENTRIES:
+            for subkey in [reg_path + r'\command', reg_path]:
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
+                except FileNotFoundError:
+                    pass
+
         print('Контекстное меню удалено.')
     except Exception as e:
         print(f'Не удалось удалить контекстное меню: {e}')

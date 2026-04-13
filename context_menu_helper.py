@@ -8,6 +8,8 @@ from pathlib import Path
 PORT = 7878
 BASE_URL = f'http://localhost:{PORT}'
 
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.tif'}
+
 
 def server_running():
     try:
@@ -82,6 +84,45 @@ def to_webp(file_path: str):
         sys.exit(1)
 
 
+def folder_to_webp(folder_path: str):
+    from PIL import Image
+    import io
+
+    folder = Path(folder_path)
+    if not folder.exists() or not folder.is_dir():
+        sys.exit(1)
+
+    files = [
+        f for f in folder.iterdir()
+        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS and f.suffix.lower() != '.webp'
+    ]
+
+    if not files:
+        _notify('Нет изображений для конвертации.')
+        sys.exit(0)
+
+    converted = 0
+    failed = 0
+
+    for f in files:
+        try:
+            image = Image.open(f)
+            out_path = f.with_suffix('.webp')
+            buf = io.BytesIO()
+            image.save(buf, format='WEBP', quality=90)
+            out_path.write_bytes(buf.getvalue())
+            image.close()
+            f.unlink()
+            converted += 1
+        except Exception:
+            failed += 1
+
+    if failed:
+        _notify(f'Конвертировано: {converted}, ошибок: {failed}')
+    else:
+        _notify(f'Готово! Конвертировано {converted} файлов в WebP.')
+
+
 def _notify(message: str):
     try:
         import subprocess
@@ -113,5 +154,7 @@ if __name__ == '__main__':
         remove_bg(file_arg)
     elif flag == '--to-webp':
         to_webp(file_arg)
+    elif flag == '--folder-to-webp':
+        folder_to_webp(file_arg)
     else:
         sys.exit(1)
