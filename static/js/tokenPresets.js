@@ -94,14 +94,17 @@ const TokenPresets = {
         if (!img) {
             state.erasableCanvas = null;
             state.protectionMask = null;
+            TokenCanvas.invalidateProtectionOverlay();
             return;
         }
         const protCanvas = this.buildProtectionCanvasFromImg(img, internalSize);
         state.protectionMask = protCanvas;
         state.erasableCanvas = protCanvas;
+        TokenCanvas.invalidateProtectionOverlay();
     },
 
     loadPresets() {
+        urlManager.revoke('presets');
         fetch('/presets_list')
             .then(r => r.json())
             .then(presets => {
@@ -111,7 +114,7 @@ const TokenPresets = {
                         .then(r => r.blob())
                         .then(blob => {
                             const img = new Image();
-                            const url = URL.createObjectURL(blob);
+                            const url = urlManager.create(blob, 'presets');
                             return new Promise(resolve => {
                                 img.onload = () => {
                                     state.eraserPresets[index] = {
@@ -279,11 +282,12 @@ const TokenPresets = {
     },
 
     loadSingleRing(filename) {
+        urlManager.revoke('ring');
         fetch(`/ring_file/${encodeURIComponent(filename)}`)
             .then(r => r.blob())
             .then(blob => {
                 const img = new Image();
-                const url = URL.createObjectURL(blob);
+                const url = urlManager.create(blob, 'ring');
                 img.onload = () => {
                     state.ringImages = { 2048: img, 1024: img, 512: img };
                     TokenCanvas.render();
@@ -297,7 +301,8 @@ const TokenPresets = {
         return new Promise((resolve) => {
             fetch(`/ring?size=${size}`).then(r => r.blob()).then(blob => {
                 const img = new Image();
-                const url = URL.createObjectURL(blob);
+                urlManager.revoke('ring-' + size);
+                const url = urlManager.create(blob, 'ring-' + size);
                 img.onload = () => { state.ringImages[size] = img; resolve(img); };
                 img.onerror = () => resolve(null);
                 img.src = url;

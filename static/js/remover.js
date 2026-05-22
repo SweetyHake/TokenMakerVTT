@@ -38,6 +38,21 @@ const Remover = {
                 if (qualityValue) qualityValue.textContent = state.selectedQuality + '%';
             };
         }
+
+        this.setupTokenMode();
+    },
+
+    setupTokenMode() {
+        const check = $('tokenModeCheck');
+        if (!check) return;
+        check.onchange = e => {
+            state.tokenMode = e.target.checked;
+            if (state.tokenMode) {
+                toast('Режим токена: создание Foundry-токенов');
+            } else {
+                toast('Обычный режим: удаление фона');
+            }
+        };
     },
     
     setupDropzone() {
@@ -216,10 +231,19 @@ const Remover = {
         fd.append('format', state.selectedFormat);
         fd.append('quality', state.selectedQuality);
 
+        const isTokenMode = state.tokenMode === true;
+        if (isTokenMode) {
+            fd.append('canvas_size', 512);
+            fd.append('head_scale', 3.5);
+            fd.append('feather', 12);
+            fd.append('add_drop_shadow', 'false');
+        }
+
         const start = Date.now();
 
         try {
-            const res = await fetch('/process', { method: 'POST', body: fd });
+            const endpoint = isTokenMode ? '/create_token' : '/process';
+            const res = await fetch(endpoint, { method: 'POST', body: fd });
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({ error: 'Ошибка сервера' }));
                 throw new Error(errData.error || 'Ошибка');
@@ -232,6 +256,15 @@ const Remover = {
             const baseName = file.name.replace(/\.[^.]+$/, '');
             const newName = baseName + '.' + ext;
             state.results.set(id, { blob, name: newName, format: state.selectedFormat });
+            if (state.results.size > 100) {
+                var oldestKey = state.results.keys().next().value;
+                state.results.delete(oldestKey);
+                state.originalImages.delete(oldestKey);
+                urlManager.revoke(oldestKey);
+                var oldestCard = $(oldestKey);
+                if (oldestCard) oldestCard.remove();
+                this.updateResultsCount();
+            }
 
             const card = $(id);
             if (!card) return;

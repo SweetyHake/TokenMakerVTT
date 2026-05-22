@@ -143,7 +143,7 @@ def _notify(message: str):
         pass
 
 
-if __name__ == '__main__':
+def main():
     if len(sys.argv) < 3:
         sys.exit(1)
 
@@ -158,3 +158,7 @@ if __name__ == '__main__':
         folder_to_webp(file_arg)
     else:
         sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

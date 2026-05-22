@@ -10,13 +10,24 @@ from flask import Flask, request, render_template, jsonify, send_file
 from PIL import Image, ImageFilter, ImageDraw
 import onnxruntime as ort
 import os
+from version import __version__, APP_NAME
+from updater import get_status as updater_status, start_background_tasks, download_update
 
 warnings.filterwarnings('ignore')
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-BASE_DIR = Path(os.environ.get('TOKENMAKER_DIR', Path(__file__).parent))
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(os.environ.get('TOKENMAKER_DIR', Path(__file__).parent))
 ONNX_PATH = BASE_DIR / "model.onnx"
 RING_DIR = BASE_DIR / "token_rings"
 MASK_PATH = BASE_DIR / "mask.png"
@@ -27,6 +38,7 @@ MAX_IMAGE_DIMENSION = 8192
 
 SESSION = None
 DEVICE_NAME = "Определение..."
+_PROVIDERS = None
 
 
 def allowed_file(filename):
@@ -126,11 +138,11 @@ def get_providers():
 
 
 def load_session():
-    global SESSION
+    global SESSION, _PROVIDERS
     if SESSION is None:
         if not ONNX_PATH.exists():
             raise FileNotFoundError(f"Файл не найден: {ONNX_PATH}")
-        providers = get_providers()
+        providers = _PROVIDERS
         print(f"Загрузка на {DEVICE_NAME}...")
 
         opts = ort.SessionOptions()
@@ -290,6 +302,208 @@ def save_image(image, format_type, quality=90):
     return buffer, mime
 
 
+# ──────────────────────────────────────────────
+#  ДЕТЕКЦИЯ ЛИЦА
+# ──────────────────────────────────────────────
+
+class FaceDetector:
+    """Детекция лица: Haar Cascade (sf=1.3, mn=3, ms=5%)"""
+
+    def __init__(self):
+        self.haar = None
+        if HAS_CV2:
+            try:
+                cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                self.haar = cv2.CascadeClassifier(cascade_path)
+            except Exception:
+                self.haar = None
+
+    def detect(self, pil_image):
+        """
+        Haar-детекция лица.
+        Сначала пробует sf=1.3 (фулл-тело), затем sf=1.05 (поясные/портреты).
+        Возвращает (face_cx, face_cy, face_size) или None.
+        """
+        if self.haar is None or not HAS_CV2:
+            return None
+        try:
+            w, h = pil_image.size
+            rgb = np.array(pil_image.convert('RGB'))
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+            gray = cv2.equalizeHist(gray)
+            min_sz = int(min(w, h) * 0.05)
+
+            for sf, label in [(1.3, 'sf=1.3'), (1.05, 'sf=1.05')]:
+                faces = self.haar.detectMultiScale(
+                    gray, scaleFactor=sf, minNeighbors=3,
+                    minSize=(min_sz, min_sz)
+                )
+                if len(faces) > 0:
+                    faces_sorted = sorted(faces, key=lambda f: f[1])
+                    x, y, fw, fh = faces_sorted[0]
+                    cx = x + fw // 2
+                    cy = y + fh // 2
+                    sz = max(fw, fh)
+                    print(f"  [Haar {label}] лицо: center=({cx},{cy}), size={sz}px")
+                    return cx, cy, sz
+        except Exception as e:
+            print(f"  [FaceDetector] ошибка детекции: {e}")
+        return None
+
+
+# ──────────────────────────────────────────────
+#  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ──────────────────────────────────────────────
+
+def find_character_bounds(pil_image, threshold=15):
+    """Находит bbox не-фонового содержимого"""
+    arr = np.array(pil_image.convert('RGBA'))
+    alpha = arr[:, :, 3]
+    if alpha.max() < 200:
+        gray = np.mean(arr[:, :, :3], axis=2)
+        mask = gray < (255 - threshold)
+    else:
+        mask = alpha > threshold
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    if not rows.any():
+        return 0, 0, pil_image.width, pil_image.height
+    top    = int(np.argmax(rows))
+    bottom = int(len(rows) - np.argmax(rows[::-1]) - 1)
+    left   = int(np.argmax(cols))
+    right  = int(len(cols) - np.argmax(cols[::-1]) - 1)
+    return left, top, right, bottom
+
+
+def make_circle_mask(size, feather=10):
+    """Создаёт круговую L-маску с мягкими краями"""
+    mask = Image.new('L', (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    m = feather
+    draw.ellipse([m, m, size - m - 1, size - m - 1], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=feather * 0.6))
+    return mask
+
+
+def add_shadow(base_img, circle_cx, circle_cy, radius, shadow_blur=18, shadow_alpha=90):
+    """Добавляет мягкую тень под кругом"""
+    shadow_layer = Image.new('RGBA', base_img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(shadow_layer)
+    offset = int(radius * 0.04)
+    r = radius
+    draw.ellipse(
+        [circle_cx - r, circle_cy - r + offset,
+         circle_cx + r, circle_cy + r + offset],
+        fill=(0, 0, 0, shadow_alpha)
+    )
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
+    return Image.alpha_composite(shadow_layer, base_img)
+
+
+def create_foundry_token(
+    image,
+    canvas_size=512,
+    circle_ratio=0.55,
+    head_scale=3.5,
+    feather=12,
+    add_drop_shadow=True,
+):
+    """
+    Создаёт Foundry-токен: круг центрирован на лице,
+    элементы снаружи — с fade-переходом.
+    """
+    W, H = image.size
+    detector = FaceDetector()
+    result = detector.detect(image)
+    if result is None:
+        raise RuntimeError("Лицо не найдено")
+    face_cx, face_cy, face_size = result
+
+    char_left, char_top, char_right, char_bottom = find_character_bounds(image)
+    char_w = char_right - char_left
+    char_h = char_bottom - char_top
+
+    R_orig = int(face_size / 2 * head_scale)
+    R_max = int(min(char_w, char_h) * 0.55)
+    R_orig = min(R_orig, R_max)
+    R_orig = max(R_orig, int(char_h * 0.2))
+
+    circle_diameter = int(canvas_size * circle_ratio)
+    R_canvas = circle_diameter // 2
+    scale = circle_diameter / (2 * R_orig)
+
+    face_offset_ratio = 0.28
+    face_cy_canvas = int(R_canvas * (1.0 - face_offset_ratio))
+    circle_cx_canvas = canvas_size // 2
+    circle_cy_canvas = int(face_cy_canvas + R_canvas * face_offset_ratio +
+                           (canvas_size - circle_diameter) * 0.18)
+
+    final = Image.new('RGBA', (canvas_size, canvas_size), (255, 255, 255, 0))
+
+    new_W = int(W * scale)
+    new_H = int(H * scale)
+    img_scaled = image.resize((new_W, new_H), Image.LANCZOS)
+
+    face_cx_scaled = int(face_cx * scale)
+    face_cy_scaled = int(face_cy * scale)
+    paste_x = circle_cx_canvas - face_cx_scaled
+    paste_y = circle_cy_canvas - face_cy_scaled - int(R_canvas * face_offset_ratio)
+
+    # Внешний слой с fade
+    outer_layer = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+    outer_layer.paste(img_scaled, (paste_x, paste_y), img_scaled)
+
+    outer_mask = Image.new('L', (canvas_size, canvas_size), 255)
+    draw_outer = ImageDraw.Draw(outer_mask)
+    inner_r = R_canvas - feather
+    draw_outer.ellipse(
+        [circle_cx_canvas - inner_r, circle_cy_canvas - inner_r,
+         circle_cx_canvas + inner_r, circle_cy_canvas + inner_r],
+        fill=0
+    )
+    outer_mask = outer_mask.filter(ImageFilter.GaussianBlur(radius=feather * 1.5))
+
+    r_ch, g_ch, b_ch, a_ch = outer_layer.split()
+    a_new = Image.fromarray(
+        (np.array(a_ch).astype(np.float32) *
+         np.array(outer_mask).astype(np.float32) / 255).astype(np.uint8)
+    )
+    outer_layer.putalpha(a_new)
+
+    # Тень
+    if add_drop_shadow:
+        final = add_shadow(final, circle_cx_canvas, circle_cy_canvas,
+                           R_canvas, shadow_blur=int(R_canvas * 0.08))
+
+    # Круговой вырез
+    circle_layer = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+    circle_layer.paste(img_scaled, (paste_x, paste_y), img_scaled)
+
+    mask_resized = make_circle_mask(R_canvas * 2, feather=feather)
+    full_mask = Image.new('L', (canvas_size, canvas_size), 0)
+    mask_offset_x = circle_cx_canvas - R_canvas
+    mask_offset_y = circle_cy_canvas - R_canvas
+    full_mask.paste(mask_resized, (mask_offset_x, mask_offset_y))
+
+    r_ch, g_ch, b_ch, a_ch = circle_layer.split()
+    a_new = Image.fromarray(
+        (np.array(a_ch).astype(np.float32) *
+         np.array(full_mask).astype(np.float32) / 255).astype(np.uint8)
+    )
+    circle_layer.putalpha(a_new)
+
+    final = Image.alpha_composite(final, outer_layer)
+    final = Image.alpha_composite(final, circle_layer)
+
+    return final
+
+
+# ──────────────────────────────────────────────
+#  END — Face Detection & Token Creation
+# ──────────────────────────────────────────────
+
+
 def create_default_ring(size, color=(100, 100, 100), width=40):
     scale = size / 1024
     w = int(width * scale)
@@ -302,6 +516,19 @@ def create_default_ring(size, color=(100, 100, 100), width=40):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/version')
+def version_info():
+    return jsonify({'version': __version__, 'name': APP_NAME})
+
+@app.route('/icon')
+def app_icon():
+    return send_file(BASE_DIR / 'icon.ico', mimetype='image/x-icon')
+
+
+@app.route('/splash')
+def splash():
+    return render_template('splash.html')
 
 
 @app.route('/presets_list')
@@ -337,6 +564,56 @@ def index():
 @app.route('/device')
 def device():
     return jsonify({'device': DEVICE_NAME})
+
+
+@app.route('/update_status')
+def update_status():
+    return jsonify(updater_status())
+
+
+@app.route('/start_update_download', methods=['POST'])
+def start_update_download():
+    import threading
+    threading.Thread(target=download_update, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/apply_update', methods=['POST'])
+def apply_update():
+    import subprocess
+    import os
+    try:
+        s = updater_status()
+        src = s.get('download_path', '')
+        if not src:
+            return jsonify({'error': 'No update file'}), 400
+
+        dst = sys.executable if getattr(sys, 'frozen', False) else str(BASE_DIR / 'TokenMaker.exe')
+        exe_name = os.path.basename(dst)
+
+        bat = BASE_DIR / '_update.bat'
+        bat.write_text(
+            f'@echo off\n'
+            f':loop\n'
+            f'tasklist /FI "IMAGENAME eq {exe_name}" 2>nul | find /I "{exe_name}" >nul\n'
+            f'if not errorlevel 1 (\n'
+            f'    ping 127.0.0.1 -n 2 > nul\n'
+            f'    goto loop\n'
+            f')\n'
+            f'copy /Y "{src}" "{dst}" > nul\n'
+            f'if exist "{src}" del "{src}" > nul\n'
+            f'start "" "{dst}"\n'
+            f'del "%~f0"\n',
+            encoding='utf-8'
+        )
+        subprocess.Popen(
+            ['cmd', '/c', str(bat)],
+            shell=True, close_fds=True,
+            creationflags=0x08000000
+        )
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/ring')
@@ -496,6 +773,99 @@ def process():
         return jsonify({'error': 'Ошибка обработки изображения'}), 500
 
 
+@app.route('/detect_face', methods=['POST'])
+def detect_face():
+    """Принимает изображение, возвращает координаты лица"""
+    if 'image' not in request.files:
+        return jsonify({'error': 'Нет изображения'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'Файл не выбран'}), 400
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Недопустимый формат файла'}), 400
+
+    try:
+        image = Image.open(file.stream).convert('RGBA')
+        image.load()
+        detector = FaceDetector()
+        result = detector.detect(image)
+        if result is None:
+            return jsonify({'error': 'Лицо не найдено'}), 404
+        cx, cy, size = result
+        return jsonify({
+            'face_cx': int(cx),
+            'face_cy': int(cy),
+            'face_size': int(size),
+            'image_width': int(image.width),
+            'image_height': int(image.height),
+            'detection_method': 'haar',
+        })
+    except Exception as e:
+        app.logger.error('detect_face error: %s', e, exc_info=True)
+        return jsonify({'error': 'Ошибка определения лица'}), 500
+
+
+@app.route('/create_token', methods=['POST'])
+def create_token():
+    """Создаёт Foundry-токен: детекция лица + круговая обрезка + тень"""
+    import gc
+
+    if 'image' not in request.files:
+        return jsonify({'error': 'Нет изображения'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'Файл не выбран'}), 400
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Недопустимый формат файла'}), 400
+
+    format_type = request.form.get('format', 'webp')
+    if format_type not in ('webp', 'png', 'jpg'):
+        format_type = 'webp'
+    try:
+        quality = min(100, max(10, int(request.form.get('quality', 90))))
+    except (ValueError, TypeError):
+        quality = 90
+    try:
+        canvas_size = min(2048, max(256, int(request.form.get('canvas_size', 512))))
+    except (ValueError, TypeError):
+        canvas_size = 512
+    try:
+        head_scale = min(5.0, max(2.0, float(request.form.get('head_scale', 3.5))))
+    except (ValueError, TypeError):
+        head_scale = 3.5
+    try:
+        feather = min(30, max(0, int(request.form.get('feather', 12))))
+    except (ValueError, TypeError):
+        feather = 12
+    add_shadow = request.form.get('add_drop_shadow', 'true').lower() in ('true', '1', 'yes')
+
+    try:
+        image = Image.open(file.stream)
+        image.load()
+        image = validate_image(image).convert('RGBA')
+        result = create_foundry_token(
+            image,
+            canvas_size=canvas_size,
+            circle_ratio=0.55,
+            head_scale=head_scale,
+            feather=feather,
+            add_drop_shadow=add_shadow,
+        )
+        del image
+        gc.collect()
+
+        buffer, mime = save_image(result, format_type, quality)
+        del result
+        gc.collect()
+
+        return send_file(buffer, mimetype=mime, as_attachment=False,
+                        download_name=f'token.{format_type}')
+    except Exception as e:
+        gc.collect()
+        app.logger.error('create_token error: %s', e, exc_info=True)
+        return jsonify({'error': 'Ошибка создания токена'}), 500
+
+
 @app.route('/rings_list')
 def rings_list():
     extensions = {'.webp', '.png', '.jpg', '.jpeg'}
@@ -552,7 +922,7 @@ def cli_to_webp(input_path: str):
     print(f"Сохранено: {out_path}")
 
 
-if __name__ == '__main__':
+if __name__ == '__main__' and not getattr(sys, 'frozen', False):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--remove-bg', metavar='FILE')
     parser.add_argument('--to-webp', metavar='FILE')
@@ -566,8 +936,11 @@ if __name__ == '__main__':
         print("\n" + "=" * 50)
         print("Background Remover & Token Maker")
         print("=" * 50)
-        load_session()
-        print(f"Device: {DEVICE_NAME}")
+        try:
+            load_session()
+            print(f"Device: {DEVICE_NAME}")
+        except Exception as e:
+            print(f"Model: {e}")
         print("http://localhost:7878")
         print("=" * 50 + "\n")
         app.run(host='0.0.0.0', port=7878, debug=False, threaded=True)
@@ -645,6 +1018,84 @@ def save_to_folder():
     except Exception as ex:
         return jsonify({'error': str(ex)}), 500
 
+@app.route('/pick_image_to_open', methods=['GET'])
+def pick_image_to_open():
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    path = filedialog.askopenfilename(
+        title='Выберите изображение',
+        filetypes=[('Images', '*.webp *.png *.jpg *.jpeg'), ('All files', '*.*')]
+    )
+    root.destroy()
+
+    if not path:
+        return jsonify({'cancelled': True})
+
+    path_obj = Path(path)
+    ext = path_obj.suffix.lower()
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime = mime_map.get(ext, 'image/octet-stream')
+
+    with open(path_obj, 'rb') as f:
+        b64 = base64.b64encode(f.read()).decode('utf-8')
+
+    return jsonify({
+        'path': str(path_obj.resolve()),
+        'mime': mime,
+        'data': b64
+    })
+
+
+@app.route('/list_images', methods=['POST'])
+def list_images():
+    data = request.get_json(force=True, silent=True) or {}
+    path_str = data.get('path', '')
+    if not path_str:
+        return jsonify({'error': 'No path provided'}), 400
+    path = Path(path_str)
+    parent = path.parent
+    if not parent.exists():
+        return jsonify({'error': 'Directory not found'}), 404
+
+    extensions = {'.webp', '.png', '.jpg', '.jpeg'}
+    files = []
+    for f in sorted(parent.iterdir()):
+        if f.is_file() and f.suffix.lower() in extensions:
+            files.append(str(f.resolve()))
+
+    current_name = path.resolve().name
+    current_index = -1
+    for i, fp in enumerate(files):
+        if Path(fp).name == current_name:
+            current_index = i
+            break
+
+    return jsonify({
+        'folder': str(parent.resolve()),
+        'files': files,
+        'currentIndex': current_index,
+        'total': len(files)
+    })
+
+
+@app.route('/get_image_by_path')
+def get_image_by_path():
+    path_str = request.args.get('path', '')
+    if not path_str:
+        return jsonify({'error': 'No path'}), 400
+    path = Path(path_str)
+    if not path.exists() or not path.is_file():
+        return jsonify({'error': 'File not found'}), 404
+    ext = path.suffix.lower()
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime = mime_map.get(ext, 'image/octet-stream')
+    return send_file(str(path), mimetype=mime)
+
+
 @app.route('/config', methods=['GET'])
 def get_config():
     config_path = BASE_DIR / 'config.json'
@@ -666,3 +1117,22 @@ def save_config():
         return jsonify({'ok': True})
     except Exception as ex:
         return jsonify({'error': str(ex)}), 500
+
+
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    """Остановить Flask-сервер"""
+    try:
+        func = request.environ.get('werkzeug.server.shutdown')
+        if func:
+            func()
+        return 'ok'
+    except Exception:
+        return 'error', 500
+
+
+# Detect device at import time (without loading the model)
+try:
+    _PROVIDERS = get_providers()
+except Exception:
+    _PROVIDERS = ['CPUExecutionProvider']

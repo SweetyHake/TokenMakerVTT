@@ -70,6 +70,10 @@ function initGlobalShortcuts() {
                 const btn = $('removeBgBtn');
                 if (btn) btn.click();
             }
+            if (code === hk.toolAutoFrame) {
+                const btn = $('autoFrameBtn');
+                if (btn) btn.click();
+            }
         }
     });
 }

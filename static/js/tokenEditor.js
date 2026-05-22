@@ -20,6 +20,7 @@ const TokenEditor = {
         this.setupSaveButtons();
         this.setupKeyboardControls();
         this.setupPortraitVisibility();
+        this.setupFaceDebug();
         this.updateToolHotkeys();
     },
 
@@ -28,6 +29,7 @@ const TokenEditor = {
         const map = {
             '[data-tool="move"] kbd':              codeToLabel(hk.toolMove),
             '[data-tool="removebg"] kbd':           codeToLabel(hk.toolRemoveBg),
+            '[data-tool="autoframe"] kbd':          codeToLabel(hk.toolAutoFrame),
             '.eraser-mode-btn.eraser-blue kbd':     codeToLabel(hk.toolEraser),
             '.eraser-mode-btn.eraser-pink kbd':     codeToLabel(hk.toolMask),
         };
@@ -40,7 +42,10 @@ const TokenEditor = {
         const tokenDropzone = $('tokenDropzone');
         const tokenFileInput = $('tokenFileInput');
         if (tokenDropzone && tokenFileInput) {
-            tokenDropzone.onclick = e => { e.stopPropagation(); tokenFileInput.click(); };
+            tokenDropzone.onclick = e => {
+                e.stopPropagation();
+                this.pickImageViaServer();
+            };
             tokenDropzone.ondragover = e => { e.preventDefault(); tokenDropzone.style.borderColor = 'var(--accent)'; };
             tokenDropzone.ondragleave = () => { tokenDropzone.style.borderColor = ''; };
             tokenDropzone.ondrop = e => {
@@ -52,14 +57,113 @@ const TokenEditor = {
         }
         if (tokenFileInput) {
             tokenFileInput.onchange = e => {
-                if (e.target.files.length > 0) TokenCanvas.loadImage(e.target.files[0]);
+                if (e.target.files.length > 0) {
+                    TokenCanvas.loadImage(e.target.files[0]);
+                }
                 tokenFileInput.value = '';
             };
         }
+        this.setupNavButtons();
         const tokenFileNameInput = $('tokenFileName');
         if (tokenFileNameInput) {
-            tokenFileNameInput.oninput = e => { state.tokenFileName = e.target.value || 'token'; };
+            tokenFileNameInput.oninput = e => {
+                state.tokenFileName = e.target.value || 'token';
+                this.updateDropzoneLabel();
+            };
         }
+    },
+
+    async pickImageViaServer() {
+        try {
+            const res = await fetch('/pick_image_to_open');
+            const data = await res.json();
+            if (data.cancelled) return;
+
+            const byteString = atob(data.data);
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+            const blob = new Blob([ab], { type: data.mime });
+            const fileName = data.path.split(/[\\/]/).pop();
+            const file = new File([blob], fileName, { type: data.mime });
+            TokenCanvas.loadImage(file, data.path);
+        } catch (err) {
+            toast('Ошибка: ' + err.message, true);
+        }
+    },
+
+    setupNavButtons() {
+        const prevBtn = $('navPrev');
+        const nextBtn = $('navNext');
+        if (prevBtn) prevBtn.onclick = () => this.navigateTo(-1);
+        if (nextBtn) nextBtn.onclick = () => this.navigateTo(1);
+    },
+
+    updateDropzoneLabel() {
+        const label = $('dropzoneLabel');
+        const dz = $('tokenDropzone');
+        if (!label || !dz) return;
+        if (state.userImage) {
+            label.textContent = state.tokenFileName || 'token';
+            dz.classList.add('has-image');
+        } else {
+            label.textContent = 'Нажмите или перетащите';
+            dz.classList.remove('has-image');
+        }
+    },
+
+    updateNavState() {
+        this.updateDropzoneLabel();
+
+        const el = $('navArrows');
+        const infoEl = $('navInfo');
+        if (!el || !infoEl) return;
+
+        if (!state.currentFilePath) {
+            el.style.display = 'none';
+            return;
+        }
+
+        fetch('/list_images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: state.currentFilePath })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error || !data.files || data.total <= 1) {
+                el.style.display = 'none';
+                state.imageFileList = [];
+                state.imageFileIndex = -1;
+                return;
+            }
+            state.imageFileList = data.files;
+            state.imageFileIndex = data.currentIndex;
+            el.style.display = 'flex';
+            this.updateNavFileName();
+        })
+        .catch(() => {
+            el.style.display = 'none';
+        });
+    },
+
+    updateNavFileName() {
+        const infoEl = $('navInfo');
+        if (!infoEl) return;
+        if (state.imageFileIndex >= 0 && state.imageFileIndex < state.imageFileList.length) {
+            infoEl.textContent = (state.imageFileIndex + 1) + ' / ' + state.imageFileList.length;
+        } else {
+            infoEl.textContent = '';
+        }
+    },
+
+    navigateTo(direction) {
+        const newIndex = state.imageFileIndex + direction;
+        if (newIndex < 0 || newIndex >= state.imageFileList.length) return;
+        const newPath = state.imageFileList[newIndex];
+        if (!newPath) return;
+        state.imageFileIndex = newIndex;
+        TokenCanvas.loadImageByPath(newPath);
     },
 
     setupToolButtons() {
@@ -67,8 +171,9 @@ const TokenEditor = {
             btn.onclick = () => {
                 const tool = btn.dataset.tool;
                 if (tool === 'removebg') { this.handleRemoveBackground(btn); return; }
+                if (tool === 'autoframe') { this.handleAutoFrame(btn); return; }
                 document.querySelectorAll('.tool-card-top[data-tool]').forEach(b => {
-                    if (b.dataset.tool !== 'removebg') b.classList.remove('active');
+                    if (b.dataset.tool !== 'removebg' && b.dataset.tool !== 'autoframe') b.classList.remove('active');
                 });
                 btn.classList.add('active');
                 state.currentTool = tool;
@@ -108,6 +213,11 @@ const TokenEditor = {
         if (eraserSizeInput) {
             eraserSizeInput.onchange = e => applyEraserSize(e.target.value);
             eraserSizeInput.oninput = e => applyEraserSize(e.target.value);
+        }
+
+        const applyFaceBtn = $('applyFaceBtn');
+        if (applyFaceBtn) {
+            applyFaceBtn.onclick = () => this.handleApplyFace();
         }
 
         const resetMaskBtn = $('resetMask');
@@ -212,6 +322,81 @@ const TokenEditor = {
         }
     },
 
+    async handleAutoFrame(btn) {
+        if (!state.userImageOriginal && !state.userImage) {
+            toast('Сначала загрузите изображение', true); return;
+        }
+
+        toast('Определение лица...');
+        btn.disabled = true;
+        var kbd = btn.querySelector('kbd');
+        var kbdText = kbd ? kbd.outerHTML : '';
+        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span>' + kbdText;
+
+        try {
+            var img = state.userImageOriginal || state.userImage;
+            var tempCanvas = document.createElement('canvas');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            tempCanvas.getContext('2d').drawImage(img, 0, 0);
+            var blob = await new Promise(function(resolve) { tempCanvas.toBlob(resolve, 'image/png'); });
+
+            var fdDetect = new FormData();
+            fdDetect.append('image', blob, 'image.png');
+            var detectRes = await fetch('/detect_face', { method: 'POST', body: fdDetect });
+            if (detectRes.ok) {
+                var detectData = await detectRes.json();
+                state.faceOverlay = {
+                    cx: detectData.face_cx,
+                    cy: detectData.face_cy,
+                    size: detectData.face_size,
+                    imageWidth: detectData.image_width,
+                    imageHeight: detectData.image_height,
+                    detectionMethod: detectData.detection_method
+                };
+                TokenEditor.showFaceDebug(true);
+                var applyBtn = $('applyFaceBtn');
+                if (applyBtn) applyBtn.style.display = '';
+                var methodNames = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
+                var methodLabel = methodNames[detectData.detection_method] || detectData.detection_method;
+                toast('Лицо найдено (' + methodLabel + '). Нажмите "Применить" или J для автопозиционирования');
+            } else {
+                toast('Не удалось определить лицо', true);
+            }
+            TokenCanvas.render();
+        } catch (err) {
+            state.faceOverlay = null;
+            toast('Ошибка: ' + err.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span>Авто-токен</span>' + kbdText;
+        }
+    },
+
+    handleApplyFace() {
+        var fo = state.faceOverlay;
+        if (!fo || !state.userImage) {
+            toast('Сначала найдите лицо через "Авто-токен"', true); return;
+        }
+        state._lastFaceOverlay = { cx: fo.cx, cy: fo.cy, size: fo.size, detectionMethod: fo.detectionMethod };
+        TokenEditor._setCanvasFaceTarget(fo, { cx: 3119, cy: 2179, size: 476 });
+        state.faceOverlay = null;
+        TokenEditor.showFaceDebug(false);
+        TokenEditor.hideApplyBtn();
+        TokenCanvas.updateScaleUI();
+        TokenCanvas.updateRotationUI();
+        TokenCanvas.resetView();
+        TokenCanvas.invalidateEffectsCache();
+        TokenCanvas.render();
+        TokenHistory.save();
+        toast('Позиция применена');
+    },
+
+    hideApplyBtn() {
+        var btn = $('applyFaceBtn');
+        if (btn) btn.style.display = 'none';
+    },
+
     updateRemoveBgButton() {
         const btn = $('removeBgBtn');
         if (!btn) return;
@@ -297,6 +482,181 @@ const TokenEditor = {
         }
     },
 
+    // Получить положение лица на канвасе (пиксели canvas)
+    // с учётом калибровочного оверлея (fo) + текущего состояния канваса
+    _getCanvasFacePos(fo) {
+        if (!fo || !state.userImage) return null;
+        var img = state.userImage;
+        var size = TokenCanvas.internalSize;
+        var scale = size / 1024;
+        return {
+            cx: size / 2 + state.imageX * scale + (fo.cx - img.width / 2) * state.imageScale * scale,
+            cy: size / 2 + state.imageY * scale + (fo.cy - img.height / 2) * state.imageScale * scale,
+            size: fo.size * state.imageScale * scale
+        };
+    },
+
+    // Установить позицию изображения так, чтобы лицо из fo оказалось
+    // в target-координатах на канвасе
+    _setCanvasFaceTarget(fo, target) {
+        if (!fo || !state.userImage || !target) return;
+        var img = state.userImage;
+        var size = TokenCanvas.internalSize;
+        var scale = size / 1024;
+        state.imageScale = target.size / (fo.size * scale);
+        state.imageX = (target.cx - size / 2) / scale - (fo.cx - img.width / 2) * state.imageScale;
+        state.imageY = (target.cy - size / 2) / scale - (fo.cy - img.height / 2) * state.imageScale;
+        state.imageRotation = 0;
+    },
+
+    _updateCanvasDisplay(fo) {
+        var cxD = $('canvasXDisplay');
+        var cyD = $('canvasYDisplay');
+        var scD = $('canvasScaleDisplay');
+        var pos = fo ? this._getCanvasFacePos(fo) : null;
+        if (pos) {
+            if (cxD) cxD.textContent = pos.cx.toFixed(1);
+            if (cyD) cyD.textContent = pos.cy.toFixed(1);
+            if (scD) scD.textContent = pos.size.toFixed(1);
+        } else {
+            if (cxD) cxD.textContent = '—';
+            if (cyD) cyD.textContent = '—';
+            if (scD) scD.textContent = '—';
+        }
+    },
+
+    setupFaceDebug() {
+        function updateFromSliders() {
+            var fo = state.faceOverlay;
+            if (!fo) return;
+            fo.cx = parseInt($('faceCxSlider').value);
+            fo.cy = parseInt($('faceCySlider').value);
+            fo.size = parseInt($('faceSizeSlider').value);
+            var cxI = $('faceCxInput'), cyI = $('faceCyInput'), szI = $('faceSizeInput');
+            if (cxI) cxI.value = fo.cx;
+            if (cyI) cyI.value = fo.cy;
+            if (szI) szI.value = fo.size;
+            TokenEditor._updateCanvasDisplay(fo);
+            TokenCanvas.render();
+        }
+
+        ['Cx', 'Cy', 'Size'].forEach(function(prop) {
+            var slider = $('face' + prop + 'Slider');
+            var input = $('face' + prop + 'Input');
+            if (slider) slider.oninput = updateFromSliders;
+            if (input) {
+                input.onchange = function() {
+                    var fo = state.faceOverlay;
+                    if (!fo) return;
+                    var max = parseInt(input.max);
+                    var min = parseInt(input.min);
+                    var val = clamp(parseInt(input.value) || 0, min, max);
+                    input.value = val;
+                    var s = $('face' + prop + 'Slider');
+                    if (s) s.value = val;
+                    if (prop === 'Cx') fo.cx = val;
+                    else if (prop === 'Cy') fo.cy = val;
+                    else fo.size = val;
+                    TokenEditor._updateCanvasDisplay(fo);
+                    TokenCanvas.render();
+                };
+            }
+        });
+
+        var copyBtn = $('copyCanvasCoords');
+        if (copyBtn) {
+            copyBtn.onclick = function() {
+                var fo = state.faceOverlay || state._lastFaceOverlay;
+                if (!fo) { toast('Нет данных о лице. Сначала нажмите "Авто-токен"', true); return; }
+                var pos = TokenEditor._getCanvasFacePos(fo);
+                if (!pos) { toast('Ошибка вычисления позиции', true); return; }
+                var text = JSON.stringify({ canvasCx: Math.round(pos.cx), canvasCy: Math.round(pos.cy), canvasSize: Math.round(pos.size) });
+                navigator.clipboard.writeText(text).then(function() {
+                    toast('Позиция лица на канвасе: ' + text);
+                }).catch(function() {
+                    toast('Ошибка копирования', true);
+                });
+            };
+        }
+
+        var pasteBtn = $('pasteCanvasBtn');
+        var pasteInput = $('pasteCanvasInput');
+        if (pasteBtn && pasteInput) {
+            function applyPaste() {
+                try {
+                    var data = JSON.parse(pasteInput.value);
+                    if (typeof data.canvasCx !== 'number' || typeof data.canvasCy !== 'number' || typeof data.canvasSize !== 'number') {
+                        toast('Неверный формат. Нужно: {"canvasCx":...,"canvasCy":...,"canvasSize":...}', true);
+                        return;
+                    }
+                    var target = { cx: data.canvasCx, cy: data.canvasCy, size: data.canvasSize };
+                    var fo = state.faceOverlay;
+                    if (!fo) {
+                        // Если оверлея нет — сначала детектируем лицо
+                        toast('Сначала нажмите "Авто-токен" для детекции лица', true);
+                        return;
+                    }
+                    TokenEditor._setCanvasFaceTarget(fo, target);
+                    state.faceOverlay = null;
+                    TokenEditor.showFaceDebug(false);
+                    var applyBtn = $('applyFaceBtn');
+                    if (applyBtn) applyBtn.style.display = 'none';
+                    TokenCanvas.updateScaleUI();
+                    TokenCanvas.updateRotationUI();
+                    TokenCanvas.resetView();
+                    TokenCanvas.invalidateEffectsCache();
+                    TokenCanvas.render();
+                    TokenHistory.save();
+                    toast('Позиция лица применена');
+                } catch (e) {
+                    toast('Ошибка: ' + e.message, true);
+                }
+            }
+            pasteBtn.onclick = applyPaste;
+            pasteInput.onkeydown = function(e) {
+                if (e.key === 'Enter') applyPaste();
+            };
+        }
+
+        var clearBtn = $('clearFaceOverlay');
+        if (clearBtn) {
+            clearBtn.onclick = function() {
+                state.faceOverlay = null;
+                var sec = $('sec-facedebug');
+                if (sec) sec.style.display = 'none';
+                var applyBtn = $('applyFaceBtn');
+                if (applyBtn) applyBtn.style.display = 'none';
+                TokenCanvas.render();
+            };
+        }
+    },
+
+    showFaceDebug(show) {
+        var sec = $('sec-facedebug');
+        if (!sec) return;
+        sec.style.display = show ? '' : 'none';
+        if (show && state.faceOverlay) {
+            var fo = state.faceOverlay;
+            var cxS = $('faceCxSlider'), cxI = $('faceCxInput');
+            var cyS = $('faceCySlider'), cyI = $('faceCyInput');
+            var szS = $('faceSizeSlider'), szI = $('faceSizeInput');
+            if (cxS) cxS.max = Math.max(state.userImage ? state.userImage.width : 2048, 2048);
+            if (cxS) cxS.value = fo.cx;
+            if (cxI) { cxI.max = cxS.max; cxI.value = fo.cx; }
+            if (cyS) cyS.max = Math.max(state.userImage ? state.userImage.height : 2048, 2048);
+            if (cyS) cyS.value = fo.cy;
+            if (cyI) { cyI.max = cyS.max; cyI.value = fo.cy; }
+            if (szS) { szS.value = fo.size; }
+            if (szI) { szI.value = fo.size; }
+            var methodDisp = $('detectionMethodDisplay');
+            if (methodDisp) {
+                var names = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
+                methodDisp.textContent = names[fo.detectionMethod] || fo.detectionMethod || '—';
+            }
+            this._updateCanvasDisplay(fo);
+        }
+    },
+
     setupCheckboxes() {
         const dropShadowCheck = $('dropShadowCheck');
         if (dropShadowCheck) {
@@ -314,7 +674,7 @@ const TokenEditor = {
                 state.colorCorrectionEnabled = e.target.checked;
                 const settings = $('colorCorrectionSettings');
                 if (settings) settings.style.display = state.colorCorrectionEnabled ? 'flex' : 'none';
-                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render();
             };
         }
@@ -410,7 +770,7 @@ const TokenEditor = {
             el.oninput = () => { 
                 AppConfig.setColorCorrection(key, parseFloat(el.value)); 
                 if (valEl) valEl.textContent = el.value; 
-                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render(); 
             };
             el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
@@ -422,7 +782,7 @@ const TokenEditor = {
                 const cc2 = AppConfig.colorCorrection;
                 $('ccSaturation').value = cc2.saturation; $('ccLightness').value = cc2.lightness;
                 sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
-                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render(); 
                 toast('Цветокоррекция сброшена');
             };
@@ -474,6 +834,9 @@ const TokenEditor = {
         if ((e.ctrlKey && code === hk.redo) || (e.ctrlKey && e.shiftKey && code === hk.undo)) { e.preventDefault(); TokenHistory.redo(); return; }
         if (!isInput && state.userImage && ROTATE_KEYS.includes(code) && !e.ctrlKey) { e.preventDefault(); this.handleRotateKey(code); return; }
         if (!isInput && state.userImage && MOVE_KEYS.includes(code)) { e.preventDefault(); this.handleMoveKey(code); }
+        if (!isInput && code === 'KeyJ' && state.faceOverlay) { e.preventDefault(); this.handleApplyFace(); return; }
+        if (!isInput && e.ctrlKey && code === 'ArrowLeft' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(-1); }
+        if (!isInput && e.ctrlKey && code === 'ArrowRight' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(1); }
     },
 
     handleKeyUp(e) {

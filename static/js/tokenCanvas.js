@@ -25,6 +25,19 @@ var TokenCanvas = {
     _zonesCanvas: null,
     _zonesDirty: true,
 
+    _protectionOverlayCache: null,
+    _protectionOverlayDirty: true,
+
+    _zoneInvImgMask: null,
+    _zoneBlueTemp: null,
+    _zoneInvScaled: null,
+    _zoneInvMask: null,
+    _zonePinkLayer: null,
+    _zoneHelpersDirty: true,
+
+    _cachedRect: null,
+    _rectDirty: true,
+
     isErasing: false,
     pendingErasePoints: [],
     eraseAnimationId: null,
@@ -279,7 +292,15 @@ var TokenCanvas = {
         return this._imageBrushCache;
     },
 
+    invalidateProtectionOverlay: function() {
+        this._protectionOverlayDirty = true;
+    },
+
     invalidateEffectsCache: function() {
+        this._shadowDirty = true;
+    },
+
+    invalidateAllCaches: function() {
         this._ccDirty = true;
         this._shadowDirty = true;
         this._compositedImageDirty = true;
@@ -508,8 +529,53 @@ var TokenCanvas = {
             this.ctx.restore();
         }
 
+        if (state.faceOverlay && state.userImage) {
+            var fo = state.faceOverlay;
+            var imgScale = state.imageScale * scale;
+            var cxc = size / 2 + state.imageX * scale;
+            var cyc = size / 2 + state.imageY * scale;
+            this.ctx.save();
+            this.ctx.translate(cxc, cyc);
+            this.ctx.rotate(state.imageRotation * Math.PI / 180);
+            var fcx = (fo.cx - state.userImage.width / 2) * imgScale;
+            var fcy = (fo.cy - state.userImage.height / 2) * imgScale;
+            var fs = fo.size * imgScale;
+            this.ctx.beginPath();
+            this.ctx.arc(fcx, fcy, fs / 2, 0, Math.PI * 2);
+            this.ctx.strokeStyle = '#00ff00';
+            this.ctx.lineWidth = Math.max(2, 3 * scale);
+            this.ctx.setLineDash([8 * scale, 4 * scale]);
+            this.ctx.stroke();
+            this.ctx.beginPath();
+            this.ctx.arc(fcx, fcy, 4 * scale, 0, Math.PI * 2);
+            this.ctx.fillStyle = '#00ff00';
+            this.ctx.fill();
+            this.ctx.beginPath();
+            this.ctx.moveTo(fcx - 12 * scale, fcy);
+            this.ctx.lineTo(fcx + 12 * scale, fcy);
+            this.ctx.moveTo(fcx, fcy - 12 * scale);
+            this.ctx.lineTo(fcx, fcy + 12 * scale);
+            this.ctx.strokeStyle = '#ff0000';
+            this.ctx.lineWidth = Math.max(1.5, 2 * scale);
+            this.ctx.setLineDash([]);
+            this.ctx.stroke();
+            this.ctx.restore();
+        }
+
         var overlay = $('canvasOverlay');
         if (overlay) overlay.style.display = state.userImage ? 'none' : 'flex';
+    },
+
+    _ensureHelperCanvases: function(size) {
+        var helpers = ['_zoneInvMask', '_zoneBlueTemp', '_zoneInvScaled', '_zonePinkLayer'];
+        helpers.forEach(function(key) {
+            if (!TokenCanvas[key] || TokenCanvas[key].width !== size) {
+                TokenCanvas[key] = document.createElement('canvas');
+                TokenCanvas[key].width = size;
+                TokenCanvas[key].height = size;
+                TokenCanvas._zoneHelpersDirty = true;
+            }
+        });
     },
 
     _renderErasedZonesCached: function(size, scale, w, h, cx, cy) {
@@ -521,18 +587,24 @@ var TokenCanvas = {
         }
 
         if (this._zonesDirty) {
+            this._ensureHelperCanvases(size);
+
             var zCtx = this._zonesCanvas.getContext('2d');
             zCtx.clearRect(0, 0, size, size);
 
             if (state.imageMaskCanvas) {
-                var invImgMask = document.createElement('canvas');
-                invImgMask.width = state.imageMaskCanvas.width;
-                invImgMask.height = state.imageMaskCanvas.height;
-                var invImgCtx = invImgMask.getContext('2d');
-                invImgCtx.fillStyle = 'white';
-                invImgCtx.fillRect(0, 0, invImgMask.width, invImgMask.height);
-                invImgCtx.globalCompositeOperation = 'destination-out';
-                invImgCtx.drawImage(state.imageMaskCanvas, 0, 0);
+                if (this._zoneHelpersDirty || !this._zoneInvImgMask || this._zoneInvImgMask.width !== state.imageMaskCanvas.width) {
+                    if (!this._zoneInvImgMask || this._zoneInvImgMask.width !== state.imageMaskCanvas.width) {
+                        this._zoneInvImgMask = document.createElement('canvas');
+                        this._zoneInvImgMask.width = state.imageMaskCanvas.width;
+                        this._zoneInvImgMask.height = state.imageMaskCanvas.height;
+                    }
+                    var invImgCtx = this._zoneInvImgMask.getContext('2d');
+                    invImgCtx.fillStyle = 'white';
+                    invImgCtx.fillRect(0, 0, this._zoneInvImgMask.width, this._zoneInvImgMask.height);
+                    invImgCtx.globalCompositeOperation = 'destination-out';
+                    invImgCtx.drawImage(state.imageMaskCanvas, 0, 0);
+                }
 
                 zCtx.save();
                 zCtx.fillStyle = 'rgba(80, 160, 255, 0.5)';
@@ -540,50 +612,39 @@ var TokenCanvas = {
                 zCtx.rotate(state.imageRotation * Math.PI / 180);
                 zCtx.globalCompositeOperation = 'source-over';
 
-                var blueTemp = document.createElement('canvas');
-                blueTemp.width = size;
-                blueTemp.height = size;
-                var bCtx = blueTemp.getContext('2d');
+                var bCtx = this._zoneBlueTemp.getContext('2d');
                 bCtx.fillStyle = 'rgba(80, 160, 255, 0.5)';
                 bCtx.fillRect(0, 0, size, size);
 
-                var invScaled = document.createElement('canvas');
-                invScaled.width = size;
-                invScaled.height = size;
-                var isCtx = invScaled.getContext('2d');
+                var isCtx = this._zoneInvScaled.getContext('2d');
                 isCtx.save();
                 isCtx.translate(cx, cy);
                 isCtx.rotate(state.imageRotation * Math.PI / 180);
-                isCtx.drawImage(invImgMask, -w / 2, -h / 2, w, h);
+                isCtx.drawImage(this._zoneInvImgMask, -w / 2, -h / 2, w, h);
                 isCtx.restore();
 
                 bCtx.globalCompositeOperation = 'destination-in';
-                bCtx.drawImage(invScaled, 0, 0);
+                bCtx.drawImage(this._zoneInvScaled, 0, 0);
 
                 zCtx.restore();
-                zCtx.drawImage(blueTemp, 0, 0);
+                zCtx.drawImage(this._zoneBlueTemp, 0, 0);
             }
 
-            var invMask = document.createElement('canvas');
-            invMask.width = size;
-            invMask.height = size;
-            var invCtx = invMask.getContext('2d');
+            var invCtx = this._zoneInvMask.getContext('2d');
             invCtx.fillStyle = 'white';
             invCtx.fillRect(0, 0, size, size);
             invCtx.globalCompositeOperation = 'destination-out';
             invCtx.drawImage(state.maskCanvas, 0, 0);
 
-            var pinkLayer = document.createElement('canvas');
-            pinkLayer.width = size;
-            pinkLayer.height = size;
-            var pCtx = pinkLayer.getContext('2d');
+            var pCtx = this._zonePinkLayer.getContext('2d');
             pCtx.fillStyle = 'rgba(255, 80, 160, 0.5)';
             pCtx.fillRect(0, 0, size, size);
             pCtx.globalCompositeOperation = 'destination-in';
-            pCtx.drawImage(invMask, 0, 0);
+            pCtx.drawImage(this._zoneInvMask, 0, 0);
 
-            zCtx.drawImage(pinkLayer, 0, 0);
+            zCtx.drawImage(this._zonePinkLayer, 0, 0);
             this._zonesDirty = false;
+            this._zoneHelpersDirty = false;
         }
 
         this.ctx.drawImage(this._zonesCanvas, 0, 0);
@@ -1213,8 +1274,13 @@ var TokenCanvas = {
         }
     },
 
-    loadImage: function(file) {
+    loadImage: function(file, filePath) {
         var self = this;
+
+        var prevScale = state.userImage ? state.imageScale : null;
+        var prevX = state.userImage ? state.imageX : null;
+        var prevY = state.userImage ? state.imageY : null;
+        var prevRotation = state.userImage ? state.imageRotation : null;
 
         if (state.userImageUrl) {
             URL.revokeObjectURL(state.userImageUrl);
@@ -1240,6 +1306,8 @@ var TokenCanvas = {
         state.history = [];
         state.historyIndex = -1;
 
+        state.currentFilePath = filePath || null;
+
         state.tokenFileName = getFileBaseName(file.name);
         var fileNameInput = $('tokenFileName');
         if (fileNameInput) fileNameInput.value = state.tokenFileName;
@@ -1255,16 +1323,23 @@ var TokenCanvas = {
                 state.showingOriginal = false;
                 TokenEditor.updateRemoveBgButton();
 
-                var internalSize = self.internalSize;
-                var scale = internalSize / 1024;
-                var maxDisplayPx = CONFIG.SCALE_SIZES[1] * scale;
-                var imgMaxDim = Math.max(img.width, img.height);
-                state.imageScale = (maxDisplayPx / imgMaxDim) / scale;
+                if (prevScale !== null) {
+                    state.imageScale = prevScale;
+                    state.imageX = prevX;
+                    state.imageY = prevY;
+                    state.imageRotation = prevRotation;
+                } else {
+                    var internalSize = self.internalSize;
+                    var scale = internalSize / 1024;
+                    var maxDisplayPx = CONFIG.SCALE_SIZES[1] * scale;
+                    var imgMaxDim = Math.max(img.width, img.height);
+                    state.imageScale = (maxDisplayPx / imgMaxDim) / scale;
+                    state.imageX = 0;
+                    state.imageY = 0;
+                    state.imageRotation = 0;
+                }
 
                 self.updateScaleUI();
-                state.imageX = 0;
-                state.imageY = 0;
-                state.imageRotation = 0;
                 self.updateRotationUI();
                 self.resetView();
 
@@ -1283,37 +1358,40 @@ var TokenCanvas = {
                 var saveWithRing = $('saveWithRing');
                 if (saveWithoutRing) saveWithoutRing.disabled = false;
                 if (saveWithRing) saveWithRing.disabled = false;
+
+                TokenEditor.updateNavState();
             };
             img.src = e.target.result;
         };
         reader.readAsDataURL(file);
     },
 
+    loadImageByPath: function(filePath) {
+        var self = this;
+        fetch('/get_image_by_path?path=' + encodeURIComponent(filePath))
+            .then(function(r) {
+                if (!r.ok) throw new Error('Не удалось загрузить файл');
+                return r.blob();
+            })
+            .then(function(blob) {
+                var fileName = filePath.split(/[\\/]/).pop();
+                var file = new File([blob], fileName, { type: blob.type });
+                file.path = filePath;
+                self.loadImage(file, filePath);
+            })
+            .catch(function(err) {
+                toast('Ошибка: ' + err.message, true);
+            });
+    },
+
     _clearCanvasCache: function() {
-        if (this._compositedImageCache) {
-            var ctx = this._compositedImageCache.getContext('2d');
-            ctx.clearRect(0, 0, this._compositedImageCache.width, this._compositedImageCache.height);
-            this._compositedImageCache = null;
-        }
-        if (this._ccImageCache) {
-            var ccCtx = this._ccImageCache.getContext('2d');
-            ccCtx.clearRect(0, 0, this._ccImageCache.width, this._ccImageCache.height);
-            this._ccImageCache = null;
-        }
-        if (this._shadowCache) {
-            var shCtx = this._shadowCache.getContext('2d');
-            shCtx.clearRect(0, 0, this._shadowCache.width, this._shadowCache.height);
-            this._shadowCache = null;
-        }
-        if (this._zonesCanvas) {
-            var zCtx = this._zonesCanvas.getContext('2d');
-            zCtx.clearRect(0, 0, this._zonesCanvas.width, this._zonesCanvas.height);
-            this._zonesCanvas = null;
-        }
-        if (this._tempCanvas) {
-            var tCtx = this._tempCtx;
-            if (tCtx) tCtx.clearRect(0, 0, this._tempCanvas.width, this._tempCanvas.height);
-        }
+        this._compositedImageCache = null;
+        this._ccImageCache = null;
+        this._shadowCache = null;
+        this._zonesCanvas = null;
+        this._protectionOverlayCache = null;
+        this._protectionOverlayDirty = true;
+        this._zoneHelpersDirty = true;
         this._compositedImageDirty = true;
         this._ccDirty = true;
         this._shadowDirty = true;
@@ -1344,26 +1422,31 @@ var TokenCanvas = {
         var maskSize = CONFIG.SCALE_SIZES[1];
         var offset = Math.round((internalSize - maskSize) / 2);
 
-        var overlayCanvas = document.createElement('canvas');
-        overlayCanvas.width = internalSize;
-        overlayCanvas.height = internalSize;
-        var oCtx = overlayCanvas.getContext('2d');
+        if (this._protectionOverlayDirty || !this._protectionOverlayCache || this._protectionOverlayCache.width !== internalSize) {
+            if (!this._protectionOverlayCache || this._protectionOverlayCache.width !== internalSize) {
+                this._protectionOverlayCache = document.createElement('canvas');
+                this._protectionOverlayCache.width = internalSize;
+                this._protectionOverlayCache.height = internalSize;
+            }
+            var oCtx = this._protectionOverlayCache.getContext('2d');
 
-        var eData = state.erasableCanvas.getContext('2d').getImageData(0, 0, internalSize, internalSize);
-        var oData = oCtx.createImageData(internalSize, internalSize);
-        var ed = eData.data;
-        var od = oData.data;
+            var eData = state.erasableCanvas.getContext('2d').getImageData(0, 0, internalSize, internalSize);
+            var oData = oCtx.createImageData(internalSize, internalSize);
+            var ed = eData.data;
+            var od = oData.data;
 
-        for (var i = 0; i < ed.length; i += 4) {
-            var isBlocked = ed[i + 3] < 128;
-            od[i]     = isBlocked ? 255 : 0;
-            od[i + 1] = isBlocked ? 80  : 0;
-            od[i + 2] = isBlocked ? 80  : 0;
-            od[i + 3] = isBlocked ? 120 : 0;
+            for (var i = 0; i < ed.length; i += 4) {
+                var isBlocked = ed[i + 3] < 128;
+                od[i]     = isBlocked ? 255 : 0;
+                od[i + 1] = isBlocked ? 80  : 0;
+                od[i + 2] = isBlocked ? 80  : 0;
+                od[i + 3] = isBlocked ? 120 : 0;
+            }
+
+            oCtx.putImageData(oData, 0, 0);
+            this._protectionOverlayDirty = false;
         }
-
-        oCtx.putImageData(oData, 0, 0);
-        this.ctx.drawImage(overlayCanvas, 0, 0);
+        this.ctx.drawImage(this._protectionOverlayCache, 0, 0);
     },
     
     resetImageMask: function() {

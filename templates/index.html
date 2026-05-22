@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Token Maker</title>
+    <link rel="icon" href="/icon" type="image/x-icon">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -121,11 +122,6 @@
 <div class="app-layout">
     <div class="title-bar" id="titleBar">
         <div class="title-bar-left">
-            <div class="app-logo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="5"/>
-                </svg>
-            </div>
             <nav class="title-tabs">
                 <button class="title-tab active" data-mode="token">
                     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/></svg>
@@ -169,9 +165,14 @@
                     <div class="section-body">
                         <div class="token-dropzone" id="tokenDropzone">
                             <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                            <span>Нажмите или перетащите</span>
+                            <span id="dropzoneLabel">Нажмите или перетащите</span>
                         </div>
                         <input type="file" id="tokenFileInput" accept="image/*">
+                        <div class="nav-arrows" id="navArrows" style="display:none">
+                            <button class="nav-arrow-btn" id="navPrev" title="Предыдущий файл (Ctrl+Left)">&#9664;</button>
+                            <span class="nav-arrow-info" id="navInfo"></span>
+                            <button class="nav-arrow-btn" id="navNext" title="Следующий файл (Ctrl+Right)">&#9654;</button>
+                        </div>
                         <div class="field-group">
                             <label class="field-label">Имя файла</label>
                             <input type="text" id="tokenFileName" class="field-input" placeholder="token">
@@ -198,6 +199,16 @@
                                 <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
                                 <span>Вырезать фон</span>
                                 <kbd>R</kbd>
+                            </button>
+                            <button class="tool-card-top" data-tool="autoframe" id="autoFrameBtn">
+                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                                <span>Авто-токен</span>
+                                <kbd>H</kbd>
+                            </button>
+                            <button class="tool-card-top" id="applyFaceBtn" style="display:none;">
+                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                                <span>Применить</span>
+                                <kbd>J</kbd>
                             </button>
                         </div>
                         <div class="eraser-dual-btn">
@@ -268,6 +279,64 @@
                         <button class="link-btn" id="resetTransformBtn">
                             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                             Сбросить
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section" id="sec-facedebug" style="display:none;">
+                    <div class="section-header" data-toggle="sec-facedebug">
+                        <div class="section-title">
+                            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                            Калибровка лица
+                        </div>
+                        <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                    </div>
+                    <div class="section-body">
+                        <div class="slider-row">
+                            <span class="slider-label">Лицо X</span>
+                            <input type="range" id="faceCxSlider" min="0" max="2048" step="1" value="1024">
+                            <input type="number" id="faceCxInput" class="slider-number" value="1024" min="0" max="2048" style="width:60px;">
+                        </div>
+                        <div class="slider-row">
+                            <span class="slider-label">Лицо Y</span>
+                            <input type="range" id="faceCySlider" min="0" max="2048" step="1" value="1024">
+                            <input type="number" id="faceCyInput" class="slider-number" value="1024" min="0" max="2048" style="width:60px;">
+                        </div>
+                        <div class="slider-row">
+                            <span class="slider-label">Размер</span>
+                            <input type="range" id="faceSizeSlider" min="10" max="2048" step="1" value="300">
+                            <input type="number" id="faceSizeInput" class="slider-number" value="300" min="10" max="2048" style="width:60px;">
+                        </div>
+                        <div class="slider-row" style="font-size:12px;color:var(--text-muted);padding:4px 0;">
+                            <span class="slider-label">Метод</span>
+                            <span id="detectionMethodDisplay" style="flex:1;text-align:right;font-family:monospace;">—</span>
+                        </div>
+                        <div class="slider-row" style="margin-top:6px;font-size:12px;color:var(--text-muted);padding:4px 0;">
+                            <span class="slider-label">Canvas X</span>
+                            <span id="canvasXDisplay" style="flex:1;text-align:right;font-family:monospace;">0</span>
+                        </div>
+                        <div class="slider-row" style="font-size:12px;color:var(--text-muted);padding:4px 0;">
+                            <span class="slider-label">Canvas Y</span>
+                            <span id="canvasYDisplay" style="flex:1;text-align:right;font-family:monospace;">0</span>
+                        </div>
+                        <div class="slider-row" style="font-size:12px;color:var(--text-muted);padding:4px 0;">
+                            <span class="slider-label">Размер на canv.</span>
+                            <span id="canvasScaleDisplay" style="flex:1;text-align:right;font-family:monospace;">1.00</span>
+                        </div>
+                        <button class="link-btn" id="copyCanvasCoords" style="margin-top:6px;">
+                            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            Скопировать canvas
+                        </button>
+                        <div style="display:flex;gap:4px;margin-top:6px;">
+                            <input type="text" id="pasteCanvasInput" placeholder='{"canvasCx":1024,"canvasCy":1024,"canvasSize":300}' style="flex:1;padding:4px 6px;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);">
+                            <button class="link-btn" id="pasteCanvasBtn" style="white-space:nowrap;">
+                                <svg viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+                                Загрузить
+                            </button>
+                        </div>
+                        <button class="link-btn" id="clearFaceOverlay" style="margin-top:6px;">
+                            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            Убрать разметку
                         </button>
                     </div>
                 </div>
@@ -618,6 +687,13 @@
                             <input type="range" id="qualitySlider" min="10" max="100" value="90" class="toolbar-slider">
                             <span id="qualityValue" class="toolbar-value">90%</span>
                         </div>
+                        <div class="format-group" style="margin-left:8px;">
+                            <label class="toggle-label" style="gap:6px;cursor:pointer;">
+                                <input type="checkbox" id="tokenModeCheck">
+                                <span class="toggle-track" style="transform:scale(0.75);transform-origin:left;"></span>
+                            </label>
+                            <span class="toolbar-label">Режим токена</span>
+                        </div>
                     </div>
                     <div class="toolbar-right">
                         <div class="batch-progress" id="batchProgress">
@@ -666,14 +742,12 @@
     <div class="panel" id="aboutPanel">
         <div class="about-layout">
             <div class="about-header">
-                <div class="about-logo">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="5"/>
-                    </svg>
+                <div class="about-logo" style="width:48px;height:48px">
+                    <img src="/icon" alt="Token Maker" style="width:48px;height:48px">
                 </div>
                 <div>
                     <div class="about-title">Token Maker</div>
-                    <div class="about-version">Версия 2.0 · Настольные ролевые игры</div>
+                    <div class="about-version" id="aboutVersion">Загрузка...</div>
                 </div>
             </div>
             <p class="about-desc">
@@ -724,6 +798,10 @@
 <script src="{{ url_for('static', filename='js/remover.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
+    fetch('/version').then(r => r.json()).then(d => {
+        const el = document.getElementById('aboutVersion');
+        if (el) el.textContent = 'Версия ' + d.version + ' · Настольные ролевые игры';
+    }).catch(() => {});
     fetch('/device').then(r => r.json()).then(d => {
         const el = document.getElementById('aboutDeviceValue');
         if (el) el.textContent = d.device;
