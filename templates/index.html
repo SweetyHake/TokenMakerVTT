@@ -156,32 +156,6 @@
                         </div>
                         <button class="link-btn" id="resetTransformBtn" data-tooltip="Сбросить"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
                     </div>
-                    <div class="ctx-divider"></div>
-                    <div id="sec-facedebug" style="display:none;">
-                        <div class="accordion-header" id="faceDebugHeader">
-                            <div class="accordion-header-left">
-                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                                <span>Лицо</span>
-                                <span class="face-method" id="detectionMethodDisplay">—</span>
-                            </div>
-                            <div class="accordion-header-right">
-                                <button class="link-btn" id="applyFaceBtn" style="font-size:9px;">Применить</button>
-                                <button class="link-btn" id="clearFaceOverlay" style="font-size:9px;color:var(--danger);">✕</button>
-                                <span class="accordion-arrow" id="faceDebugArrow">▶</span>
-                            </div>
-                        </div>
-                        <div class="accordion-body" id="faceDebugBody">
-                            <div class="slider-row" style="margin-top:4px;"><span class="slider-label">Лицо X</span><input type="range" id="faceCxSlider" min="0" max="2048" step="1" value="1024"><input type="number" id="faceCxInput" class="slider-number" value="1024" min="0" max="2048" style="width:50px;"></div>
-                            <div class="slider-row"><span class="slider-label">Лицо Y</span><input type="range" id="faceCySlider" min="0" max="2048" step="1" value="1024"><input type="number" id="faceCyInput" class="slider-number" value="1024" min="0" max="2048" style="width:50px;"></div>
-                            <div class="slider-row"><span class="slider-label">Размер</span><input type="range" id="faceSizeSlider" min="10" max="2048" step="1" value="300"><input type="number" id="faceSizeInput" class="slider-number" value="300" min="10" max="2048" style="width:50px;"></div>
-                            <div class="slider-row" style="font-size:10px;color:var(--text-muted);padding:2px 0;"><span class="slider-label">Canvas</span><span id="canvasXDisplay" style="flex:1;text-align:right;font-family:monospace;">0</span><span style="color:var(--text-muted);margin:0 2px;">/</span><span id="canvasYDisplay" style="flex:1;text-align:right;font-family:monospace;">0</span><span style="color:var(--text-muted);margin:0 2px;">/</span><span id="canvasScaleDisplay" style="font-family:monospace;">1.00</span></div>
-                            <div style="display:flex;gap:4px;margin-top:4px;">
-                                <input type="text" id="pasteCanvasInput" placeholder='{"canvasCx":1024,"canvasCy":1024,"canvasSize":300}' style="flex:1;padding:2px 4px;font-family:monospace;font-size:9px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);">
-                                <button class="link-btn" id="pasteCanvasBtn" style="white-space:nowrap;font-size:9px;"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Paste</button>
-                            </div>
-                            <button class="link-btn" id="copyCanvasCoords" style="margin-top:4px;font-size:9px;"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Скопировать калибровку</button>
-                        </div>
-                    </div>
                 </div>
             </div>
             <div class="resize-handle" id="leftPanelHandle"></div>

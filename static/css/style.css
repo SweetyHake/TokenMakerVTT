@@ -325,7 +325,6 @@ input[type="file"] { display: none; }
 .accordion-arrow.open { transform: rotate(90deg); }
 .accordion-body { display: flex; flex-direction: column; gap: 3px; max-height: 0; opacity: 0; overflow: hidden; padding: 0; transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease; }
 .accordion-body.open { opacity: 1; padding: 4px 0; }
-.face-method { font-size: 9px; color: var(--accent); text-transform: none; letter-spacing: normal; font-weight: 400; }
 
 /* ===== Effect check ===== */
 .effect-check { display: flex; align-items: center; cursor: pointer; }
