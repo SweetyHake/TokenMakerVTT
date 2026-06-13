@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 import io
+import subprocess
 import sys
 import base64
 import warnings
 import argparse
+import threading
 import numpy as np
 from pathlib import Path
-from flask import Flask, request, render_template, jsonify, send_file
+from flask import Flask, request, render_template, jsonify, send_file, current_app
 from PIL import Image, ImageFilter, ImageDraw
 import onnxruntime as ort
 import os
-from version import __version__, APP_NAME
-from updater import get_status as updater_status, start_background_tasks, download_update
+from version import __version__, APP_NAME, GITHUB_REPO
+from updater import (
+    get_status as updater_status,
+    start_background_tasks,
+    download_update,
+    check_for_updates,
+)
 
 warnings.filterwarnings('ignore')
 
@@ -177,9 +184,6 @@ def load_session():
 
 
 def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
-    from PIL import ImageFilter
-    import numpy as np
-
     mask_np = np.array(mask_pil).astype(np.float32) / 255.0
 
     low = threshold_low / 255.0
@@ -515,7 +519,7 @@ def create_default_ring(size, color=(100, 100, 100), width=40):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', github_repo=GITHUB_REPO)
 
 @app.route('/version')
 def version_info():
@@ -529,6 +533,34 @@ def app_icon():
 @app.route('/splash')
 def splash():
     return render_template('splash.html')
+
+
+@app.route('/api/window/<action>', methods=['POST'])
+def window_action(action):
+    win = getattr(current_app, 'window_ref', None)
+    if not win:
+        return jsonify({'ok': False, 'error': 'no window'})
+    try:
+        if action == 'minimize':
+            win.minimize()
+        elif action == 'maximize':
+            win.maximize()
+        elif action == 'restore':
+            win.restore()
+        elif action in ('close', 'destroy'):
+            win.destroy()
+        elif action == 'move':
+            import ctypes
+            native = win.native
+            if native:
+                hwnd = native.Handle.ToInt64() if hasattr(native.Handle, 'ToInt64') else int(native.Handle)
+                ctypes.windll.user32.PostMessageW(ctypes.c_void_p(hwnd), 0x8001, 0, 0)
+            return jsonify({'ok': True})
+        else:
+            return jsonify({'ok': False, 'error': 'unknown action'})
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 @app.route('/presets_list')
@@ -557,8 +589,6 @@ def preset_file(filename):
     response = send_file(str(path), mimetype=mime)
     response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
-def index():
-    return render_template('index.html')
 
 
 @app.route('/device')
@@ -573,15 +603,18 @@ def update_status():
 
 @app.route('/start_update_download', methods=['POST'])
 def start_update_download():
-    import threading
     threading.Thread(target=download_update, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/check_update', methods=['POST'])
+def check_update():
+    threading.Thread(target=lambda: check_for_updates(force=True), daemon=True).start()
     return jsonify({'ok': True})
 
 
 @app.route('/apply_update', methods=['POST'])
 def apply_update():
-    import subprocess
-    import os
     try:
         s = updater_status()
         src = s.get('download_path', '')
@@ -670,18 +703,6 @@ def preset():
             response.headers['Cache-Control'] = 'public, max-age=86400'
             return response
     return jsonify({'error': 'Preset not found'}), 404
-def preset():
-    name = request.args.get('name', 'preset1')
-    if not name.replace('_', '').replace('-', '').isalnum():
-        return jsonify({'error': 'Invalid preset name'}), 400
-    for ext in ['.png', '.webp', '.jpg']:
-        preset_path = PRESET_DIR / f"{name}{ext}"
-        if preset_path.exists():
-            mime = 'image/png' if ext == '.png' else 'image/webp' if ext == '.webp' else 'image/jpeg'
-            response = send_file(str(preset_path), mimetype=mime)
-            response.headers['Cache-Control'] = 'public, max-age=86400'
-            return response
-    return jsonify({'error': 'Preset not found'}), 404
 
 
 @app.route('/example')
@@ -743,34 +764,34 @@ def process():
         gc.collect()
         app.logger.error('process error: %s', e, exc_info=True)
         return jsonify({'error': 'Ошибка обработки изображения'}), 500
-def process():
+
+
+@app.route('/convert', methods=['POST'])
+def convert_file():
     if 'image' not in request.files:
         return jsonify({'error': 'Нет изображения'}), 400
     file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'Файл не выбран'}), 400
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Недопустимый формат файла'}), 400
+
     format_type = request.form.get('format', 'webp')
-    if format_type not in ('webp', 'png', 'jpg'):
+    if format_type not in ('webp', 'png', 'jpg', 'bmp', 'gif', 'tiff'):
         format_type = 'webp'
     try:
         quality = min(100, max(10, int(request.form.get('quality', 90))))
     except (ValueError, TypeError):
         quality = 90
-    try:
-        edge_blur = min(10, max(0, float(request.form.get('edge_blur', 1))))
-    except (ValueError, TypeError):
-        edge_blur = 1.0
+
     try:
         image = Image.open(file.stream)
-        image = validate_image(image)
-        result = remove_background(image, edge_blur)
-        buffer, mime = save_image(result, format_type, quality)
-        return send_file(buffer, mimetype=mime, as_attachment=False, download_name=f'result.{format_type}')
+        image.load()
+
+        buffer, mime = save_image(image, format_type, quality)
+        del image
+
+        return send_file(buffer, mimetype=mime, as_attachment=False,
+                        download_name=f'converted.{format_type}')
     except Exception as e:
-        app.logger.error('process error: %s', e, exc_info=True)
-        return jsonify({'error': 'Ошибка обработки изображения'}), 500
+        app.logger.error('convert error: %s', e, exc_info=True)
+        return jsonify({'error': 'Ошибка конвертации изображения'}), 500
 
 
 @app.route('/detect_face', methods=['POST'])

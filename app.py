@@ -77,12 +77,13 @@ def _kill_process_on_port(port):
         pass
 
 
-# Ядерный выход — TerminateProcess через WinAPI
 kernel32 = ctypes.windll.kernel32
+
+# Keep WNDPROC callback objects alive (prevent GC)
+_wndproc_refs = []
 
 
 def _nuclear_exit():
-    """Убивает процесс мгновенно, без оглядки на потоки и clean-up."""
     if PID_FILE and PID_FILE.exists():
         try:
             PID_FILE.unlink()
@@ -108,7 +109,6 @@ def main():
     URL = f'http://localhost:{PORT}'
     SPLASH_URL = f'http://localhost:{PORT}/splash'
 
-    # SetConsoleCtrlHandler — ловит Ctrl+C и закрытие консоли
     kernel32.SetConsoleCtrlHandler(
         ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_uint)(lambda event: (kernel32.TerminateProcess(kernel32.GetCurrentProcess(), 0), True)[1]),
         1
@@ -116,7 +116,6 @@ def main():
 
     PID_FILE = BASE_DIR / 'app.pid'
 
-    # Убить предыдущую копию по PID-файлу
     if PID_FILE.exists():
         try:
             old_pid = int(PID_FILE.read_text())
@@ -126,10 +125,8 @@ def main():
         except Exception:
             pass
 
-    # Убить процесс на порту (страховка)
     _kill_process_on_port(PORT)
 
-    # Записать свой PID
     try:
         PID_FILE.write_text(str(_os.getpid()))
     except Exception:
@@ -153,6 +150,16 @@ def main():
         except Exception:
             time.sleep(0.1)
 
+    class WindowApi:
+        def minimize(self):
+            _window.minimize()
+        def maximize(self):
+            _window.maximize()
+        def restore(self):
+            _window.restore()
+        def destroy(self):
+            _window.destroy()
+
     window = webview.create_window(
         title='Token Maker',
         url=SPLASH_URL,
@@ -161,21 +168,25 @@ def main():
         min_size=(800, 600),
         resizable=True,
         text_select=False,
+        frameless=False,
+        hidden=True,
+        js_api=WindowApi(),
     )
+
+    _window = window
+    app.window_ref = window
 
     def _set_icon():
         try:
             icon_path = str(BASE_DIR / 'icon.ico')
+            native = window.native
+            if not native or not hasattr(native, 'Handle'):
+                return
+            hwnd_int = native.Handle.ToInt64() if hasattr(native.Handle, 'ToInt64') else native.Handle.ToInt32()
+            hwnd = ctypes.c_void_p(hwnd_int)
             ctypes.windll.user32.LoadImageW.restype = ctypes.c_void_p
             ctypes.windll.user32.SendMessageW.restype = ctypes.c_void_p
-            hwnd = window.native
-            if not hwnd:
-                return
-            hwnd = ctypes.c_void_p(hwnd)
-            hicon = ctypes.windll.user32.LoadImageW(
-                None, ctypes.c_wchar_p(icon_path),
-                1, 0, 0, 0x00000010
-            )
+            hicon = ctypes.windll.user32.LoadImageW(None, ctypes.c_wchar_p(icon_path), 1, 0, 0, 0x00000010)
             if not hicon:
                 return
             ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
@@ -184,19 +195,100 @@ def main():
             ctypes.windll.user32.SetClassLongPtrW(hwnd, -34, hicon)
         except Exception:
             pass
-    window.events.shown += _set_icon
 
-    # --- Тройная гарантия завершения ---
+    def _on_loaded():
+        _set_icon()
+        try:
+            native = window.native
+            if native and hasattr(native, 'Handle'):
+                hwnd_int = native.Handle.ToInt64() if hasattr(native.Handle, 'ToInt64') else native.Handle.ToInt32()
+                hwnd = ctypes.c_void_p(hwnd_int)
 
-    # 1) При закрытии окна (fires reliably на edgechromium)
+                # Dark title bar
+                try:
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4
+                    )
+                except Exception:
+                    pass
+
+                # Hide DWM NC rendering so our content shows through
+                try:
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 2, ctypes.byref(ctypes.c_int(1)), 4
+                    )
+                except Exception:
+                    pass
+
+                # Install WndProc to handle NCCALCSIZE only
+                NC_TOP = 0
+                NC_EDGE = 0
+                WNDPROC = ctypes.WINFUNCTYPE(
+                    ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+                )
+                _CallWindowProc = ctypes.windll.user32.CallWindowProcW
+                _CallWindowProc.restype = ctypes.c_long
+                _CallWindowProc.argtypes = [
+                    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+                ]
+                _DefWindowProc = ctypes.windll.user32.DefWindowProcW
+                _DefWindowProc.restype = ctypes.c_long
+                _DefWindowProc.argtypes = [
+                    ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p
+                ]
+
+                try:
+                    _SetWindowLong = ctypes.windll.user32.SetWindowLongPtrW
+                    _SetWindowLong.restype = ctypes.c_void_p
+                    _SetWindowLong.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+                except AttributeError:
+                    _SetWindowLong = ctypes.windll.user32.SetWindowLongW
+                    _SetWindowLong.restype = ctypes.c_long
+
+                @WNDPROC
+                def _hook(h, msg, wp, lp):
+                    if msg == 0x0083:  # WM_NCCALCSIZE
+                        try:
+                            r = ctypes.cast(lp, ctypes.POINTER(ctypes.wintypes.RECT))
+                            r[0].top += NC_TOP
+                            r[0].left += NC_EDGE
+                            r[0].right -= NC_EDGE
+                            r[0].bottom -= NC_EDGE
+                            return 0
+                        except Exception:
+                            pass
+                    if msg == 0x8001:  # WM_APP+1 — drag from Flask
+                        try:
+                            ctypes.windll.user32.ReleaseCapture()
+                            ctypes.windll.user32.SendMessageW(h, 0x00A1, 2, 0)
+                        except Exception:
+                            pass
+                        return 0
+                    return _CallWindowProc(orig, h, msg, wp, lp)
+
+                @WNDPROC
+                def _dummy(h, msg, wp, lp):
+                    return _DefWindowProc(h, msg, wp, lp)
+                orig = _SetWindowLong(hwnd, -4, ctypes.cast(_dummy, ctypes.c_void_p))
+                _SetWindowLong(hwnd, -4, ctypes.cast(_hook, ctypes.c_void_p))
+                _wndproc_refs.append((_hook, _dummy))
+
+                ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                    0x0020 | 0x0002 | 0x0004 | 0x0001)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        try:
+            window.show()
+        except Exception:
+            pass
+    window.events.loaded += _on_loaded
+
     window.events.closing += _nuclear_exit
-
-    # 2) После того как окно закрылось (backup)
     window.events.closed += _nuclear_exit
 
     webview.start(gui='edgechromium', debug=False)
 
-    # 3) Если webview.start() вернулся — ядерный выход
     _nuclear_exit()
 
 

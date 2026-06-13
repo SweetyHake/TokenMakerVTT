@@ -65,6 +65,41 @@ async function pickFolder() {
     }
 }
 
+function initTooltips() {
+    var el = null, timer = null;
+    function removeEl() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (!el) return;
+        var e = el;
+        el = null;
+        e.classList.remove('show');
+        timer = setTimeout(function() { if (e && e.parentNode) e.parentNode.removeChild(e); }, 120);
+    }
+    document.addEventListener('mouseover', function(e) {
+        var target = e.target.closest('[data-tooltip]');
+        if (!target) { removeEl(); return; }
+        if (el && el._target === target) return;
+        removeEl();
+        var text = target.getAttribute('data-tooltip');
+        if (!text) return;
+        el = document.createElement('div');
+        el.className = 'tooltip-el';
+        el.textContent = text;
+        el._target = target;
+        document.body.appendChild(el);
+        var rect = target.getBoundingClientRect();
+        var top = rect.top - 6 - el.offsetHeight;
+        if (top < 4) top = rect.bottom + 6;
+        el.style.left = Math.max(4, Math.min(rect.left + rect.width / 2 - el.offsetWidth / 2, window.innerWidth - el.offsetWidth - 4)) + 'px';
+        el.style.top = top + 'px';
+        requestAnimationFrame(function() { el.classList.add('show'); });
+    }, false);
+    document.addEventListener('mouseout', function(e) {
+        if (e.target.closest('[data-tooltip]')) setTimeout(removeEl, 20);
+    }, false);
+    document.addEventListener('scroll', removeEl, true);
+}
+
 async function saveToFolder(blob, filename, folderPath) {
     const fd = new FormData();
     fd.append('file', blob, filename);

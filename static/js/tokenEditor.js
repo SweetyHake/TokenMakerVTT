@@ -21,6 +21,7 @@ const TokenEditor = {
         this.setupKeyboardControls();
         this.setupPortraitVisibility();
         this.setupFaceDebug();
+        this.setupAccordions();
         this.updateToolHotkeys();
     },
 
@@ -28,13 +29,13 @@ const TokenEditor = {
         const hk = AppConfig.hotkeys;
         const map = {
             '[data-tool="move"] kbd':              codeToLabel(hk.toolMove),
-            '[data-tool="removebg"] kbd':           codeToLabel(hk.toolRemoveBg),
+            '#removeBgBtn':                         null,
             '[data-tool="autoframe"] kbd':          codeToLabel(hk.toolAutoFrame),
-            '.eraser-mode-btn.eraser-blue kbd':     codeToLabel(hk.toolEraser),
-            '.eraser-mode-btn.eraser-pink kbd':     codeToLabel(hk.toolMask),
+            '[data-tool="eraser"] kbd':             codeToLabel(hk.toolEraser),
+            '[data-tool="mask"] kbd':               codeToLabel(hk.toolMask),
         };
         Object.entries(map).forEach(([sel, label]) => {
-            document.querySelectorAll(sel).forEach(el => { el.textContent = label; });
+            document.querySelectorAll(sel).forEach(el => { if (label) el.textContent = label; });
         });
     },
 
@@ -104,10 +105,10 @@ const TokenEditor = {
         const dz = $('tokenDropzone');
         if (!label || !dz) return;
         if (state.userImage) {
-            label.textContent = state.tokenFileName || 'token';
+            label.textContent = (state.tokenFileName || 'token') + '.webp';
             dz.classList.add('has-image');
         } else {
-            label.textContent = 'Нажмите или перетащите';
+            label.textContent = 'Файл не выбран';
             dz.classList.remove('has-image');
         }
     },
@@ -167,38 +168,32 @@ const TokenEditor = {
     },
 
     setupToolButtons() {
-        document.querySelectorAll('.tool-card-top[data-tool]').forEach(btn => {
+        document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
             btn.onclick = () => {
                 const tool = btn.dataset.tool;
-                if (tool === 'removebg') { this.handleRemoveBackground(btn); return; }
                 if (tool === 'autoframe') { this.handleAutoFrame(btn); return; }
-                document.querySelectorAll('.tool-card-top[data-tool]').forEach(b => {
-                    if (b.dataset.tool !== 'removebg' && b.dataset.tool !== 'autoframe') b.classList.remove('active');
-                });
+                document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 state.currentTool = tool;
                 const tokenCanvas = $('tokenCanvas');
-                if (tokenCanvas) tokenCanvas.classList.remove('eraser-mode');
-                const eraserRow = $('eraserRow');
-                if (eraserRow) eraserRow.style.display = 'none';
-                TokenCanvas.hideEraserCursor();
+                if (tool === 'eraser' || tool === 'mask') {
+                    state.currentEraserMode = tool === 'eraser' ? 'blue' : 'pink';
+                    if (tokenCanvas) tokenCanvas.classList.add('eraser-mode');
+                    const eraserRow = $('eraserRow');
+                    if (eraserRow) eraserRow.style.display = 'flex';
+                    TokenCanvas.showEraserCursor();
+                    $('removeBgBtn')?.classList.remove('active');
+                } else {
+                    if (tokenCanvas) tokenCanvas.classList.remove('eraser-mode');
+                    const eraserRow = $('eraserRow');
+                    if (eraserRow) eraserRow.style.display = 'none';
+                    TokenCanvas.hideEraserCursor();
+                }
             };
         });
 
-        document.querySelectorAll('.eraser-mode-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.tool-card-top[data-tool]').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.eraser-mode-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                state.currentEraserMode = btn.dataset.mode;
-                state.currentTool = 'eraser';
-                const tokenCanvas = $('tokenCanvas');
-                if (tokenCanvas) tokenCanvas.classList.add('eraser-mode');
-                const eraserRow = $('eraserRow');
-                if (eraserRow) eraserRow.style.display = 'flex';
-                TokenCanvas.showEraserCursor();
-            };
-        });
+        const removeBgBtn = $('removeBgBtn');
+        if (removeBgBtn) removeBgBtn.onclick = () => this.handleRemoveBackground();
 
         const eraserSizeSlider = $('eraserSize');
         const eraserSizeInput = $('eraserSizeInput');
@@ -215,18 +210,16 @@ const TokenEditor = {
             eraserSizeInput.oninput = e => applyEraserSize(e.target.value);
         }
 
-        const applyFaceBtn = $('applyFaceBtn');
-        if (applyFaceBtn) {
-            applyFaceBtn.onclick = () => this.handleApplyFace();
-        }
-
-        const resetMaskBtn = $('resetMask');
-        if (resetMaskBtn) resetMaskBtn.onclick = () => TokenCanvas.resetMask();
-        const resetImageMaskBtn = $('resetImageMask');
-        if (resetImageMaskBtn) resetImageMaskBtn.onclick = () => TokenCanvas.resetImageMask();
+        const resetEraserBtn = $('resetEraserBtn');
+        if (resetEraserBtn) resetEraserBtn.onclick = () => {
+            TokenCanvas.resetImageMask();
+            TokenCanvas.resetMask();
+        };
     },
 
-    async handleRemoveBackground(btn) {
+    async handleRemoveBackground() {
+        const btn = $('removeBgBtn');
+        if (!btn) return;
         if (!state.userImageOriginal && !state.userImageWithoutBg) {
             toast('Сначала загрузите изображение', true); return;
         }
@@ -234,13 +227,13 @@ const TokenEditor = {
             state.showingOriginal = !state.showingOriginal;
             if (state.showingOriginal) {
                 state.userImage = state.userImageOriginal;
-                btn.querySelector('span').textContent = 'Показать без фона';
                 btn.classList.remove('active');
+                btn.dataset.tooltip = 'Показать без фона (R)';
                 toast('Показан оригинал');
             } else {
                 state.userImage = state.userImageWithoutBg;
-                btn.querySelector('span').textContent = 'Показать оригинал';
                 btn.classList.add('active');
+                btn.dataset.tooltip = 'Показать оригинал (R)';
                 toast('Показан без фона');
             }
             TokenCanvas._compositedImageDirty = true;
@@ -253,10 +246,6 @@ const TokenEditor = {
 
         toast('Удаление фона...');
         btn.disabled = true;
-        const kbd = btn.querySelector('kbd');
-        const kbdText = kbd ? kbd.outerHTML : '';
-        const originalSpanText = btn.querySelector('span')?.textContent || 'Вырезать фон';
-        btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span>${kbdText}`;
 
         try {
             const tempCanvas = document.createElement('canvas');
@@ -300,8 +289,8 @@ const TokenEditor = {
                 TokenCanvas._imageBrushCache = null;
 
                 btn.disabled = false;
-                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg><span>Показать оригинал</span>${kbdText}`;
                 btn.classList.add('active');
+                btn.dataset.tooltip = 'Показать оригинал (R)';
                 this.updateRemoveBgButton();
                 TokenHistory.save();
                 TokenCanvas.render();
@@ -318,7 +307,6 @@ const TokenEditor = {
         } catch (err) {
             toast('Ошибка: ' + err.message, true);
             btn.disabled = false;
-            btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg><span>${originalSpanText}</span>${kbdText}`;
         }
     },
 
@@ -329,9 +317,6 @@ const TokenEditor = {
 
         toast('Определение лица...');
         btn.disabled = true;
-        var kbd = btn.querySelector('kbd');
-        var kbdText = kbd ? kbd.outerHTML : '';
-        btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Обработка...</span>' + kbdText;
 
         try {
             var img = state.userImageOriginal || state.userImage;
@@ -354,12 +339,13 @@ const TokenEditor = {
                     imageHeight: detectData.image_height,
                     detectionMethod: detectData.detection_method
                 };
-                TokenEditor.showFaceDebug(true);
-                var applyBtn = $('applyFaceBtn');
-                if (applyBtn) applyBtn.style.display = '';
-                var methodNames = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
-                var methodLabel = methodNames[detectData.detection_method] || detectData.detection_method;
-                toast('Лицо найдено (' + methodLabel + '). Нажмите "Применить" или J для автопозиционирования');
+                var methodDisp = $('detectionMethodDisplay');
+                if (methodDisp) {
+                    var names = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
+                    methodDisp.textContent = names[detectData.detection_method] || detectData.detection_method || '—';
+                }
+                this.handleApplyFace();
+                this.showFaceDebug(true);
             } else {
                 toast('Не удалось определить лицо', true);
             }
@@ -369,7 +355,6 @@ const TokenEditor = {
             toast('Ошибка: ' + err.message, true);
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span>Авто-токен</span>' + kbdText;
         }
     },
 
@@ -381,8 +366,6 @@ const TokenEditor = {
         state._lastFaceOverlay = { cx: fo.cx, cy: fo.cy, size: fo.size, detectionMethod: fo.detectionMethod };
         TokenEditor._setCanvasFaceTarget(fo, { cx: 3119, cy: 2179, size: 476 });
         state.faceOverlay = null;
-        TokenEditor.showFaceDebug(false);
-        TokenEditor.hideApplyBtn();
         TokenCanvas.updateScaleUI();
         TokenCanvas.updateRotationUI();
         TokenCanvas.resetView();
@@ -392,23 +375,16 @@ const TokenEditor = {
         toast('Позиция применена');
     },
 
-    hideApplyBtn() {
-        var btn = $('applyFaceBtn');
-        if (btn) btn.style.display = 'none';
-    },
-
     updateRemoveBgButton() {
         const btn = $('removeBgBtn');
         if (!btn) return;
-        const span = btn.querySelector('span');
-        if (!span) return;
         if (state.backgroundRemoved && state.userImageWithoutBg) {
             btn.disabled = false;
-            if (state.showingOriginal) { span.textContent = 'Показать без фона'; btn.classList.remove('active'); }
-            else { span.textContent = 'Показать оригинал'; btn.classList.add('active'); }
+            if (state.showingOriginal) {                 btn.dataset.tooltip = 'Показать без фона (R)'; btn.classList.remove('active'); }
+            else { btn.dataset.tooltip = 'Показать оригинал (R)'; btn.classList.add('active'); }
         } else {
             btn.disabled = false;
-            span.textContent = 'Вырезать фон';
+            btn.dataset.tooltip = 'Вырезать фон (R)';
             btn.classList.remove('active');
         }
     },
@@ -563,6 +539,47 @@ const TokenEditor = {
             }
         });
 
+        var header = $('faceDebugHeader');
+        var body = $('faceDebugBody');
+        var arrow = $('faceDebugArrow');
+        if (header && body) {
+            header.onclick = function(e) {
+                if (e.target.tagName === 'BUTTON') return;
+                var isOpen = body.classList.contains('open');
+                if (isOpen) {
+                    body.classList.remove('open');
+                    body.style.maxHeight = '0';
+                    if (arrow) arrow.classList.remove('open');
+                } else {
+                    if (!state.faceOverlay && state._lastFaceOverlay) {
+                        state.faceOverlay = { cx: state._lastFaceOverlay.cx, cy: state._lastFaceOverlay.cy, size: state._lastFaceOverlay.size, detectionMethod: state._lastFaceOverlay.detectionMethod };
+                        var cxS = $('faceCxSlider'), cxI = $('faceCxInput');
+                        var cyS = $('faceCySlider'), cyI = $('faceCyInput');
+                        var szS = $('faceSizeSlider'), szI = $('faceSizeInput');
+                        if (cxS) { cxS.max = Math.max(state.userImage ? state.userImage.width : 2048, 2048); cxS.value = state.faceOverlay.cx; }
+                        if (cxI) { cxI.max = cxS.max; cxI.value = state.faceOverlay.cx; }
+                        if (cyS) { cyS.max = Math.max(state.userImage ? state.userImage.height : 2048, 2048); cyS.value = state.faceOverlay.cy; }
+                        if (cyI) { cyI.max = cyS.max; cyI.value = state.faceOverlay.cy; }
+                        if (szS) { szS.value = state.faceOverlay.size; }
+                        if (szI) { szI.value = state.faceOverlay.size; }
+                        TokenEditor._updateCanvasDisplay(state.faceOverlay);
+                        TokenCanvas.render();
+                    }
+                    body.classList.add('open');
+                    body.style.maxHeight = body.scrollHeight + 'px';
+                    if (arrow) arrow.classList.add('open');
+                }
+            };
+        }
+
+        var applyBtn = $('applyFaceBtn');
+        if (applyBtn) applyBtn.onclick = function(e) {
+            e.stopPropagation();
+            if (state.faceOverlay) {
+                TokenEditor.handleApplyFace();
+            }
+        };
+
         var copyBtn = $('copyCanvasCoords');
         if (copyBtn) {
             copyBtn.onclick = function() {
@@ -592,15 +609,12 @@ const TokenEditor = {
                     var target = { cx: data.canvasCx, cy: data.canvasCy, size: data.canvasSize };
                     var fo = state.faceOverlay;
                     if (!fo) {
-                        // Если оверлея нет — сначала детектируем лицо
                         toast('Сначала нажмите "Авто-токен" для детекции лица', true);
                         return;
                     }
                     TokenEditor._setCanvasFaceTarget(fo, target);
                     state.faceOverlay = null;
                     TokenEditor.showFaceDebug(false);
-                    var applyBtn = $('applyFaceBtn');
-                    if (applyBtn) applyBtn.style.display = 'none';
                     TokenCanvas.updateScaleUI();
                     TokenCanvas.updateRotationUI();
                     TokenCanvas.resetView();
@@ -620,12 +634,11 @@ const TokenEditor = {
 
         var clearBtn = $('clearFaceOverlay');
         if (clearBtn) {
-            clearBtn.onclick = function() {
+            clearBtn.onclick = function(e) {
+                e.stopPropagation();
                 state.faceOverlay = null;
                 var sec = $('sec-facedebug');
                 if (sec) sec.style.display = 'none';
-                var applyBtn = $('applyFaceBtn');
-                if (applyBtn) applyBtn.style.display = 'none';
                 TokenCanvas.render();
             };
         }
@@ -635,8 +648,15 @@ const TokenEditor = {
         var sec = $('sec-facedebug');
         if (!sec) return;
         sec.style.display = show ? '' : 'none';
+        var fo = state.faceOverlay || state._lastFaceOverlay;
+        if (fo) {
+            var methodDisp = $('detectionMethodDisplay');
+            if (methodDisp) {
+                var names = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
+                methodDisp.textContent = names[fo.detectionMethod] || fo.detectionMethod || '—';
+            }
+        }
         if (show && state.faceOverlay) {
-            var fo = state.faceOverlay;
             var cxS = $('faceCxSlider'), cxI = $('faceCxInput');
             var cyS = $('faceCySlider'), cyI = $('faceCyInput');
             var szS = $('faceSizeSlider'), szI = $('faceSizeInput');
@@ -648,13 +668,49 @@ const TokenEditor = {
             if (cyI) { cyI.max = cyS.max; cyI.value = fo.cy; }
             if (szS) { szS.value = fo.size; }
             if (szI) { szI.value = fo.size; }
-            var methodDisp = $('detectionMethodDisplay');
-            if (methodDisp) {
-                var names = { mediapipe: 'MediaPipe', dnn: 'OpenCV DNN', haar: 'Haar', heuristic: 'эвристика' };
-                methodDisp.textContent = names[fo.detectionMethod] || fo.detectionMethod || '—';
-            }
             this._updateCanvasDisplay(fo);
         }
+        if (show) {
+            var body = $('faceDebugBody');
+            if (body) { body.classList.remove('open'); body.style.maxHeight = '0'; }
+            var arrow = $('faceDebugArrow');
+            if (arrow) arrow.classList.remove('open');
+        }
+    },
+
+    setupAccordions() {
+        function toggle(headerId, bodyId, arrowId) {
+            var header = $(headerId);
+            var body = $(bodyId);
+            var arrow = $(arrowId);
+            if (!header || !body) return;
+            header.onclick = function(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') return;
+                var isOpen = body.classList.toggle('open');
+                if (arrow) arrow.classList.toggle('open', isOpen);
+                if (isOpen) {
+                    body.style.maxHeight = body.scrollHeight + 'px';
+                } else {
+                    body.style.maxHeight = '0';
+                }
+            };
+        }
+        toggle('shadowAccordion', 'dropShadowSettings', 'shadowArrow');
+        toggle('ccAccordion', 'colorCorrectionSettings', 'ccArrow');
+
+        document.querySelectorAll('.tab-btn').forEach(function(btn) {
+            btn.onclick = function() {
+                document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelectorAll('.tab-content').forEach(function(c) { c.style.display = 'none'; });
+                btn.classList.add('active');
+                var tab = $(btn.dataset.tab);
+                if (tab) tab.style.display = 'flex';
+                if (btn.dataset.tab === 'portraitTab' && typeof PortraitGenerator !== 'undefined') {
+                    PortraitGenerator._applyDisplaySize();
+                    PortraitGenerator.render();
+                }
+            };
+        });
     },
 
     setupCheckboxes() {
@@ -662,8 +718,6 @@ const TokenEditor = {
         if (dropShadowCheck) {
             dropShadowCheck.onchange = e => {
                 state.dropShadowEnabled = e.target.checked;
-                const settings = $('dropShadowSettings');
-                if (settings) settings.style.display = state.dropShadowEnabled ? 'flex' : 'none';
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
             };
@@ -672,9 +726,7 @@ const TokenEditor = {
         if (colorCorrectionCheck) {
             colorCorrectionCheck.onchange = e => {
                 state.colorCorrectionEnabled = e.target.checked;
-                const settings = $('colorCorrectionSettings');
-                if (settings) settings.style.display = state.colorCorrectionEnabled ? 'flex' : 'none';
-                TokenCanvas.invalidateAllCaches();
+                TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
             };
         }
@@ -692,12 +744,25 @@ const TokenEditor = {
         if (showBordersCheck) showBordersCheck.onchange = e => { state.showScaleBorders = e.target.checked; TokenCanvas.render(); };
 
         const saveQualitySelect = $('saveQualitySelect');
-        if (saveQualitySelect) saveQualitySelect.onchange = e => { state.saveQuality = parseInt(e.target.value); toast('Качество: ' + state.saveQuality + 'px'); };
+        if (saveQualitySelect) {
+            var savedQ = AppConfig.saveSettings.quality || 512;
+            saveQualitySelect.value = savedQ;
+            state.saveQuality = savedQ;
+            saveQualitySelect.onchange = e => {
+                state.saveQuality = parseInt(e.target.value);
+                AppConfig.setSaveSetting('quality', state.saveQuality);
+                toast('Качество: ' + state.saveQuality + 'px');
+            };
+        }
 
         const saveScaleSelect = $('saveScaleSelect');
         if (saveScaleSelect) {
+            var savedS = AppConfig.saveSettings.scaleMode || 'auto';
+            saveScaleSelect.value = savedS;
+            state.saveScaleMode = savedS;
             saveScaleSelect.onchange = e => {
                 state.saveScaleMode = e.target.value;
+                AppConfig.setSaveSetting('scaleMode', state.saveScaleMode);
                 const labels = { 'auto': 'Авто', '1': 'х1', '2': 'х2', '3': 'х3' };
                 toast('Масштаб сохранения: ' + (labels[state.saveScaleMode] || state.saveScaleMode));
             };
@@ -712,7 +777,6 @@ const TokenEditor = {
                 state.quickSaveEnabled = e.target.checked;
                 if (quickSaveFolderRow) quickSaveFolderRow.style.display = state.quickSaveEnabled ? 'flex' : 'none';
                 if (state.quickSaveEnabled && !state.quickSaveFolder) this._pickSaveFolder(quickSaveFolderName);
-                this.updatePortraitVisibility();
             };
         }
         if (quickSaveFolderBtn) quickSaveFolderBtn.onclick = () => this._pickSaveFolder(quickSaveFolderName);
@@ -796,6 +860,50 @@ const TokenEditor = {
         if (saveWithRingBtn) saveWithRingBtn.onclick = () => TokenCanvas.save(true);
         this.updateRemoveBgButton();
 
+        var previewTimer = null;
+        function showPreview(withRing) {
+            if (!state.userImage) return;
+            if (previewTimer) clearTimeout(previewTimer);
+            previewTimer = setTimeout(function() {
+                var el = $('savePreview');
+                var img = $('savePreviewImg');
+                if (!el || !img) return;
+                var result = TokenCanvas.renderForSave(withRing);
+                if (!result || !result.canvas) return;
+                var srcCanvas = result.canvas;
+                var sw = srcCanvas.width, sh = srcCanvas.height;
+                var previewCanvas = document.createElement('canvas');
+                previewCanvas.width = 96;
+                previewCanvas.height = 96;
+                var pCtx = previewCanvas.getContext('2d');
+                pCtx.imageSmoothingEnabled = true;
+                pCtx.imageSmoothingQuality = 'high';
+                pCtx.drawImage(srcCanvas, 0, 0, sw, sh, 0, 0, 96, 96);
+                img.src = previewCanvas.toDataURL('image/webp', 0.85);
+                el.classList.add('show');
+            }, 200);
+        }
+        function hidePreview() {
+            if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+            var el = $('savePreview');
+            if (el) el.classList.remove('show');
+        }
+        if (saveWithRingBtn) {
+            saveWithRingBtn.addEventListener('mouseenter', function() { showPreview(true); });
+            saveWithRingBtn.addEventListener('mouseleave', hidePreview);
+        }
+        if (saveWithoutRingBtn) {
+            saveWithoutRingBtn.addEventListener('mouseenter', function() { showPreview(false); });
+            saveWithoutRingBtn.addEventListener('mouseleave', hidePreview);
+        }
+
+        const undoBtn = $('undoBtn');
+        const redoBtn = $('redoBtn');
+        const undoBar = $('undoBar');
+        if (undoBtn) undoBtn.onclick = () => { TokenHistory.undo(); this._updateUndoButtons(); };
+        if (redoBtn) redoBtn.onclick = () => { TokenHistory.redo(); this._updateUndoButtons(); };
+        if (undoBar) undoBar.style.display = state.userImage ? 'flex' : 'none';
+
         const lastQuickSave = AppConfig.lastFolders.quickSave;
         if (lastQuickSave) {
             state.quickSaveFolder = lastQuickSave;
@@ -804,23 +912,72 @@ const TokenEditor = {
         }
     },
 
-    setupPortraitVisibility() {
-        const quickSaveCheck = $('quickSaveCheck');
-        if (quickSaveCheck) quickSaveCheck.addEventListener('change', () => this.updatePortraitVisibility());
-        this.updatePortraitVisibility();
+    _updateUndoButtons() {
+        const undoBtn = $('undoBtn');
+        const redoBtn = $('redoBtn');
+        if (undoBtn) undoBtn.disabled = state.historyIndex <= 0;
+        if (redoBtn) redoBtn.disabled = state.historyIndex >= state.history.length - 1;
     },
 
-    updatePortraitVisibility() {
-        const section = $('sec-portrait');
-        if (!section) return;
-        const enabled = $('quickSaveCheck')?.checked || false;
-        section.style.display = enabled ? '' : 'none';
-        if (enabled && !PortraitGenerator.canvas) PortraitGenerator.init();
+    setupPortraitVisibility() {
+        if (!PortraitGenerator.canvas) PortraitGenerator.init();
     },
 
     setupKeyboardControls() {
         document.addEventListener('keydown', e => this.handleKeyDown(e));
         document.addEventListener('keyup', e => this.handleKeyUp(e));
+
+        var ctxMenu = $('ctxMenu');
+        if (ctxMenu) {
+            ctxMenu.addEventListener('click', function(e) {
+                var item = e.target.closest('.ctx-menu-item');
+                if (!item) return;
+                var action = item.dataset.action;
+                ctxMenu.classList.remove('show');
+                if (action === 'undo') { TokenHistory.undo(); return; }
+                if (action === 'redo') { TokenHistory.redo(); return; }
+                if (action === 'resetView') { TokenCanvas.resetView(); return; }
+                if (action === 'saveWithRing') { TokenCanvas.save(true); return; }
+                if (action === 'saveWithoutRing') { TokenCanvas.save(false); return; }
+                if (action === 'copyCoords') {
+                    var fo = state.faceOverlay || state._lastFaceOverlay;
+                    var text;
+                    if (fo) {
+                        var pos = TokenEditor._getCanvasFacePos(fo);
+                        text = JSON.stringify({ canvasCx: Math.round(pos.cx), canvasCy: Math.round(pos.cy), canvasSize: Math.round(pos.size) });
+                    } else {
+                        var scale = state.imageScale || 1;
+                        text = JSON.stringify({ scale: Math.round(scale * 100) + '%', rotation: Math.round(state.imageRotation || 0) + '°', x: Math.round(state.imageX || 0), y: Math.round(state.imageY || 0) });
+                    }
+                    navigator.clipboard.writeText(text).then(function() { toast('Скопировано: ' + text); });
+                    return;
+                }
+            });
+
+            document.addEventListener('contextmenu', function(e) {
+                if (e.target.closest('.canvas-area')) {
+                    e.preventDefault();
+                    ctxMenu.classList.remove('show');
+                    setTimeout(function() {
+                        var maxX = window.innerWidth - 190;
+                        var maxY = window.innerHeight - 220;
+                        ctxMenu.style.left = Math.min(e.clientX, maxX) + 'px';
+                        ctxMenu.style.top = Math.min(e.clientY, maxY) + 'px';
+                        ctxMenu.classList.add('show');
+                    }, 0);
+                }
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.ctx-menu')) {
+                    ctxMenu.classList.remove('show');
+                }
+            });
+
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') ctxMenu.classList.remove('show');
+            });
+        }
     },
 
     handleKeyDown(e) {
@@ -834,7 +991,6 @@ const TokenEditor = {
         if ((e.ctrlKey && code === hk.redo) || (e.ctrlKey && e.shiftKey && code === hk.undo)) { e.preventDefault(); TokenHistory.redo(); return; }
         if (!isInput && state.userImage && ROTATE_KEYS.includes(code) && !e.ctrlKey) { e.preventDefault(); this.handleRotateKey(code); return; }
         if (!isInput && state.userImage && MOVE_KEYS.includes(code)) { e.preventDefault(); this.handleMoveKey(code); }
-        if (!isInput && code === 'KeyJ' && state.faceOverlay) { e.preventDefault(); this.handleApplyFace(); return; }
         if (!isInput && e.ctrlKey && code === 'ArrowLeft' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(-1); }
         if (!isInput && e.ctrlKey && code === 'ArrowRight' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(1); }
     },

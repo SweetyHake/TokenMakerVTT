@@ -44,6 +44,7 @@ var TokenHistory = {
         } else {
             state.historyIndex++;
         }
+        if (typeof TokenEditor !== 'undefined' && TokenEditor._updateUndoButtons) TokenEditor._updateUndoButtons();
     },
 
     restore(entry) {
@@ -90,6 +91,7 @@ var TokenHistory = {
         } else {
             toast('Нечего отменять', true);
         }
+        if (typeof TokenEditor !== 'undefined' && TokenEditor._updateUndoButtons) TokenEditor._updateUndoButtons();
     },
 
     redo() {
@@ -100,6 +102,7 @@ var TokenHistory = {
         } else {
             toast('Нечего повторять', true);
         }
+        if (typeof TokenEditor !== 'undefined' && TokenEditor._updateUndoButtons) TokenEditor._updateUndoButtons();
     },
 
     init() {

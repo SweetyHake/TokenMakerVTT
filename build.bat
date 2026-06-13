@@ -30,11 +30,6 @@ xcopy /E /I /Y "presets" "dist\TokenMaker\presets" > nul
 echo.
 echo ========================================
 echo   Done! exe in dist\TokenMaker\
-echo   Included: templates, static, token_rings, presets\
-echo ========================================
-echo.
-echo ========================================
-echo   Done! exe in dist\TokenMaker\
 echo.
 echo   Included: templates, static, token_rings, presets
 echo   Place model.onnx next to TokenMaker.exe

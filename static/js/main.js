@@ -1,25 +1,54 @@
 function initTabs() {
-    document.querySelectorAll('.title-tab').forEach(tab => {
+    document.querySelectorAll('.nav-btn[data-mode]').forEach(tab => {
         tab.onclick = () => {
-            document.querySelectorAll('.title-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            const mode = tab.dataset.mode;
+            document.querySelectorAll('.nav-btn[data-mode]').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-            const panel = $(tab.dataset.mode + 'Panel');
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            const panel = $(mode + 'Panel');
             if (panel) panel.classList.add('active');
         };
     });
 }
 
-function initSectionCollapse() {
-    document.querySelectorAll('.section-header[data-toggle]').forEach(header => {
-        header.onclick = () => {
-            const body = header.nextElementSibling;
-            const chevron = header.querySelector('.chevron');
-            if (!body) return;
-            const isCollapsed = body.classList.contains('collapsed');
-            body.classList.toggle('collapsed', !isCollapsed);
-            if (chevron) chevron.classList.toggle('collapsed', !isCollapsed);
-        };
+function initZoomControls() {
+    const zoomIn = $('zoomInBtn');
+    const zoomOut = $('zoomOutBtn');
+    const zoomReset = $('zoomResetBtn');
+    const zoomLabel = $('zoomLabel');
+
+    function updateLabel() {
+        if (zoomLabel && state.viewZoom !== undefined) zoomLabel.textContent = Math.round(state.viewZoom * 100) + '%';
+    }
+
+    if (zoomIn) zoomIn.onclick = () => {
+        if (!TokenCanvas) return;
+        state.viewZoom = Math.min(state.viewZoom * 1.25, CONFIG.MAX_ZOOM || 20);
+        TokenCanvas.updateViewTransform();
+        updateLabel();
+    };
+    if (zoomOut) zoomOut.onclick = () => {
+        if (!TokenCanvas) return;
+        state.viewZoom = Math.max(state.viewZoom * 0.8, CONFIG.MIN_ZOOM || 0.5);
+        TokenCanvas.updateViewTransform();
+        updateLabel();
+    };
+    if (zoomReset) zoomReset.onclick = () => {
+        if (!TokenCanvas) return;
+        TokenCanvas.resetView();
+        updateLabel();
+    };
+
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
+            e.preventDefault(); zoomIn?.click();
+        }
+        if (e.ctrlKey && (e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+            e.preventDefault(); zoomOut?.click();
+        }
+        if (e.ctrlKey && e.code === 'Digit0') {
+            e.preventDefault(); zoomReset?.click();
+        }
     });
 }
 
@@ -46,6 +75,12 @@ function initGlobalShortcuts() {
             return;
         }
 
+        if (e.ctrlKey && code === 'KeyR') {
+            e.preventDefault();
+            location.reload();
+            return;
+        }
+
         const tokenPanel = $('tokenPanel');
         if (!tokenPanel?.classList.contains('active')) return;
 
@@ -55,15 +90,15 @@ function initGlobalShortcuts() {
 
         if (!e.ctrlKey) {
             if (code === hk.toolMove) {
-                const btn = document.querySelector('.tool-card-top[data-tool="move"]');
+                const btn = document.querySelector('.tool-btn[data-tool="move"]');
                 if (btn && !btn.classList.contains('active')) btn.click();
             }
             if (code === hk.toolEraser) {
-                const btn = document.querySelector('.eraser-mode-btn.eraser-blue');
+                const btn = document.querySelector('.tool-btn[data-tool="eraser"]');
                 if (btn) btn.click();
             }
             if (code === hk.toolMask) {
-                const btn = document.querySelector('.eraser-mode-btn.eraser-pink');
+                const btn = document.querySelector('.tool-btn[data-tool="mask"]');
                 if (btn) btn.click();
             }
             if (code === hk.toolRemoveBg) {
@@ -130,14 +165,137 @@ function initSliderWheels() {
     });
 }
 
+function initTheme() {
+    function applyTheme(val) {
+        document.documentElement.classList.remove('theme-neon', 'theme-warm', 'theme-dark');
+        if (val && val !== 'indigo') document.documentElement.classList.add('theme-' + val);
+    }
+    applyTheme(AppConfig.theme);
+    document.querySelectorAll('input[name="theme"]').forEach(r => {
+        r.checked = (r.value === AppConfig.theme);
+        r.addEventListener('change', function() {
+            if (!this.checked) return;
+            applyTheme(this.value);
+            AppConfig.setTheme(this.value);
+        });
+    });
+}
+
+function initDefaultSettings() {
+    var defQ = $('defQualitySelect');
+    if (defQ) {
+        defQ.value = AppConfig.saveSettings.quality || 512;
+        defQ.onchange = function() {
+            AppConfig.setSaveSetting('quality', parseInt(this.value));
+        };
+    }
+    var defFmt = $('defRemoverFormat');
+    if (defFmt) {
+        defFmt.value = AppConfig.remover.format || 'webp';
+        defFmt.onchange = function() {
+            AppConfig.setRemover('format', this.value);
+        };
+    }
+}
+
+function initResizeHandles() {
+    var leftPanel = document.querySelector('.context-panel-left');
+    var leftHandle = $('leftPanelHandle');
+    var savedLeft = AppConfig.panelWidths.left || 320;
+    if (leftPanel) leftPanel.style.width = savedLeft + 'px';
+
+    function makeResize(handle, panel, side) {
+        if (!handle || !panel) return;
+        var startX, startW;
+        function onStart(e) {
+            startX = e.clientX;
+            startW = panel.offsetWidth;
+            handle.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onEnd);
+        }
+        function onMove(e) {
+            var dx = side === 'left' ? (e.clientX - startX) : (startX - e.clientX);
+            var newW = Math.max(180, Math.min(480, startW + dx));
+            panel.style.width = newW + 'px';
+        }
+        function onEnd() {
+            handle.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            AppConfig.setPanelWidth(side, panel.offsetWidth);
+        }
+        handle.addEventListener('mousedown', onStart);
+    }
+
+    makeResize(leftHandle, leftPanel, 'left');
+}
+
+function initWindowControls() {
+    const $ = id => document.getElementById(id);
+    const flask = (action) => fetch('/api/window/' + action, { method: 'POST' }).catch(() => {});
+    const api = window.pywebview?.api;
+
+    $('wcMinimize')?.addEventListener('click', () => {
+        if (api && api.minimize) api.minimize();
+        else flask('minimize');
+    });
+    $('wcClose')?.addEventListener('click', () => {
+        if (api && api.destroy) api.destroy();
+        else flask('close');
+    });
+
+    const maxBtn = $('wcMaximize');
+    if (maxBtn) {
+        const setIcon = () => {
+            const isMax = document.documentElement.classList.contains('is-maximized');
+            maxBtn.innerHTML = isMax
+                ? '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="14" height="14" rx="1"/><rect x="3" y="3" width="14" height="14" rx="1"/></svg>'
+                : '<svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>';
+        };
+        maxBtn.addEventListener('click', () => {
+            if (document.documentElement.classList.contains('is-maximized')) {
+                document.documentElement.classList.remove('is-maximized');
+                if (api && api.restore) api.restore();
+                else flask('restore');
+            } else {
+                document.documentElement.classList.add('is-maximized');
+                if (api && api.maximize) api.maximize();
+                else flask('maximize');
+            }
+            setIcon();
+        });
+    }
+
+    $('titleBar')?.addEventListener('dblclick', e => {
+        if (e.target.closest('.tb-nav, .window-controls')) return;
+        maxBtn?.click();
+    });
+
+    $('titleBar')?.addEventListener('mousedown', e => {
+        if (e.target.closest('.tb-nav, .window-controls')) return;
+        flask('move');
+    });
+}
+
 async function init() {
     await AppConfig.load();
+    initTheme();
+    initDefaultSettings();
+    initResizeHandles();
     initTabs();
-    initSectionCollapse();
+    initZoomControls();
+    initWindowControls();
     initGlobalShortcuts();
     initPasteHandler();
     initSliderWheels();
+    initTooltips();
     Remover.init();
+    Converter.init();
     TokenEditor.init();
     HotkeySettings.init();
     window.addEventListener('beforeunload', () => urlManager.revokeAll());

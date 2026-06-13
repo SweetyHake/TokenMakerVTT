@@ -9,23 +9,29 @@ const Remover = {
     
     setupDeviceInfo() {
         fetch('/device').then(r => r.json()).then(d => {
-            const info = $('deviceInfo');
-            const badge = $('deviceBadge');
-            if (info) info.textContent = d.device;
-            if (badge && (d.device.includes('GPU') || d.device.includes('DirectML') || d.device.includes('CUDA'))) {
-                badge.classList.add('gpu');
-            }
+            const dot = $('deviceBadge');
+            if (!dot) return;
+            const device = d.device || 'CPU';
+            const isGPU = device.includes('GPU') || device.includes('DirectML') || device.includes('CUDA');
+            dot.className = 'device-dot ' + (isGPU ? 'gpu' : 'cpu');
+            dot.dataset.tooltip = device + (isGPU ? ' (GPU)' : ' (CPU)');
         }).catch(() => {
-            const info = $('deviceInfo');
-            if (info) info.textContent = 'CPU';
+            const dot = $('deviceBadge');
+            if (!dot) return;
+            dot.className = 'device-dot cpu';
+            dot.dataset.tooltip = 'CPU';
         });
     },
     
     setupFormatControls() {
         const formatSelect = $('formatSelect');
         if (formatSelect) {
+            var savedFormat = AppConfig.remover.format || 'webp';
+            formatSelect.value = savedFormat;
+            state.selectedFormat = savedFormat;
             formatSelect.onchange = e => {
                 state.selectedFormat = e.target.value;
+                AppConfig.setRemover('format', e.target.value);
                 toast(`Формат: ${state.selectedFormat.toUpperCase()}`);
             };
         }
@@ -33,9 +39,16 @@ const Remover = {
         const qualitySlider = $('qualitySlider');
         const qualityValue = $('qualityValue');
         if (qualitySlider) {
+            var savedQuality = AppConfig.remover.quality || 90;
+            qualitySlider.value = savedQuality;
+            state.selectedQuality = savedQuality;
+            if (qualityValue) qualityValue.textContent = savedQuality + '%';
             qualitySlider.oninput = e => {
                 state.selectedQuality = parseInt(e.target.value);
                 if (qualityValue) qualityValue.textContent = state.selectedQuality + '%';
+            };
+            qualitySlider.onchange = e => {
+                AppConfig.setRemover('quality', parseInt(e.target.value));
             };
         }
 
@@ -45,8 +58,12 @@ const Remover = {
     setupTokenMode() {
         const check = $('tokenModeCheck');
         if (!check) return;
+        var savedTokenMode = AppConfig.remover.tokenMode || false;
+        check.checked = savedTokenMode;
+        state.tokenMode = savedTokenMode;
         check.onchange = e => {
             state.tokenMode = e.target.checked;
+            AppConfig.setRemover('tokenMode', e.target.checked);
             if (state.tokenMode) {
                 toast('Режим токена: создание Foundry-токенов');
             } else {
@@ -128,9 +145,7 @@ const Remover = {
 
         const emptyState = $('emptyState');
         if (emptyState) emptyState.style.display = 'none';
-
-        const resultsHeader = $('resultsHeader');
-        if (resultsHeader) resultsHeader.classList.add('show');
+        this.updateResultsCount();
 
         imageFiles.forEach(file => {
             const id = 'img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -179,7 +194,7 @@ const Remover = {
 
             const nameSpan = document.createElement('span');
             nameSpan.className = 'result-name';
-            nameSpan.title = safeName;
+            nameSpan.dataset.tooltip = safeName;
             nameSpan.textContent = file.name;
 
             const dlBtn = document.createElement('button');
@@ -281,7 +296,7 @@ const Remover = {
             preview.appendChild(img);
             preview.onclick = () => this.showCompare(id);
             preview.style.cursor = 'pointer';
-            preview.title = 'Нажмите для сравнения';
+            preview.dataset.tooltip = 'Нажмите для сравнения';
 
             const safeNewName = newName.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const safeBlobSize = formatSize(blob.size);
@@ -289,7 +304,7 @@ const Remover = {
             const infoText = document.createElement('div');
             infoText.className = 'result-info-text';
             infoText.innerHTML = `
-                <span class="result-name" title="${safeNewName}">${safeNewName}</span>
+                <span class="result-name" data-tooltip="${safeNewName}">${safeNewName}</span>
                 <div class="result-stats">
                     <span>${safeBlobSize}</span> • ${time}s
                 </div>
@@ -300,17 +315,24 @@ const Remover = {
 
             const copyBtn = document.createElement('button');
             copyBtn.className = 'download-btn';
-            copyBtn.title = 'Копировать в буфер';
+            copyBtn.dataset.tooltip = 'Копировать в буфер';
             copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
             copyBtn.onclick = () => this.copyToClipboard(id);
 
+            const editBtn = document.createElement('button');
+            editBtn.className = 'download-btn';
+            editBtn.dataset.tooltip = 'Открыть в редакторе';
+            editBtn.innerHTML = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>`;
+            editBtn.onclick = () => this.openInEditor(id);
+
             const dlBtn = document.createElement('button');
             dlBtn.className = 'download-btn';
-            dlBtn.title = 'Скачать';
+            dlBtn.dataset.tooltip = 'Скачать';
             dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
             dlBtn.onclick = () => this.downloadOne(id);
 
             btnWrap.appendChild(copyBtn);
+            btnWrap.appendChild(editBtn);
             btnWrap.appendChild(dlBtn);
 
             info.innerHTML = '';
@@ -429,9 +451,6 @@ const Remover = {
         `;
         grid.appendChild(emptyState);
 
-        const resultsHeader = $('resultsHeader');
-        if (resultsHeader) resultsHeader.classList.remove('show');
-
         this.updateDownloadAllBtn();
         toast('Очищено');
     },
@@ -475,6 +494,20 @@ const Remover = {
         } catch {
             toast('Не удалось скопировать', true);
         }
+    },
+
+    openInEditor(id) {
+        const data = state.results.get(id);
+        if (!data) { toast('Результат не найден', true); return; }
+        const file = new File([data.blob], data.name, { type: data.blob.type });
+        document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+        var tokenTab = document.querySelector('.nav-btn[data-mode="token"]');
+        if (tokenTab) tokenTab.classList.add('active');
+        var tokenPanel = $('tokenPanel');
+        if (tokenPanel) tokenPanel.classList.add('active');
+        TokenCanvas.loadImage(file);
+        toast('Открыто в редакторе');
     },
     
     updateResultsCount() {

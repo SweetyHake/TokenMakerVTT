@@ -20,6 +20,7 @@ const PortraitGenerator = {
     init() {
         this.canvas = $('portraitCanvas');
         if (!this.canvas) return;
+        this.canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
         this.ctx = this.canvas.getContext('2d', { alpha: true });
         this.canvas.width = this.SIZE;
         this.canvas.height = this.SIZE;

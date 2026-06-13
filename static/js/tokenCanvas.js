@@ -48,6 +48,7 @@ var TokenCanvas = {
 
     init: function() {
         this.canvas = $('tokenCanvas');
+        this.canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
         this.ctx = this.canvas.getContext('2d', { alpha: true });
         this.wrapper = $('canvasWrapper');
         this.area = this.canvas.closest('.canvas-area') || this.wrapper;
@@ -433,11 +434,13 @@ var TokenCanvas = {
 
         this.ctx.clearRect(0, 0, size, size);
 
-        var ringSize = CONFIG.SCALE_SIZES[1];
-        var ringOffset = (size - ringSize) / 2;
-        var ringImage = state.ringImages[2048] || state.ringImages[1024];
-        if (ringImage) {
-            this.ctx.drawImage(ringImage, ringOffset, ringOffset, ringSize, ringSize);
+        if (state.userImage) {
+            var ringSize = CONFIG.SCALE_SIZES[1];
+            var ringOffset = (size - ringSize) / 2;
+            var ringImage = state.ringImages[2048] || state.ringImages[1024];
+            if (ringImage) {
+                this.ctx.drawImage(ringImage, ringOffset, ringOffset, ringSize, ringSize);
+            }
         }
 
         if (state.userImage) {
@@ -481,7 +484,7 @@ var TokenCanvas = {
             }
         }
 
-        if (state.exampleEnabled && state.exampleImage) {
+        if (state.userImage && state.exampleEnabled && state.exampleImage) {
             var ex = state.exampleImage;
             var exTargetPx = CONFIG.SCALE_SIZES[state.exampleScaleMode] || CONFIG.SCALE_SIZES[1];
             var exRatio = exTargetPx / this.internalSize;
@@ -506,26 +509,56 @@ var TokenCanvas = {
             this._renderProtectionMaskOverlay(size);
         }
 
+        var s3 = CONFIG.SCALE_SIZES[3];
+        var dashLen = 20 * (size / s3);
+        var gapLen = 12 * (size / s3);
+
+        var scaleMode = state.saveScaleMode || 'auto';
+        var qualityBase = state.saveQuality || 512;
+        var activeScale;
+        if (scaleMode === 'auto') {
+            var imgMaxDim = state.userImage ? Math.max(state.userImage.width, state.userImage.height) : 0;
+            var internalSize = this.internalSize;
+            var sc = internalSize / 1024;
+            var maxDisplayPx = CONFIG.SCALE_SIZES[1] * sc;
+            if (imgMaxDim > 0) {
+                var dispScale = state.imageScale || 1;
+                var displayW = imgMaxDim * dispScale * scale;
+                if (displayW <= maxDisplayPx) activeScale = 1;
+                else if (displayW <= maxDisplayPx * 2) activeScale = 2;
+                else activeScale = 3;
+            } else { activeScale = 1; }
+        } else {
+            activeScale = parseInt(scaleMode) || 1;
+        }
+
         if (state.showScaleBorders) {
-            var s3 = CONFIG.SCALE_SIZES[3];
             this.ctx.save();
-            var dashLen = 20 * (size / s3);
-            var gapLen = 12 * (size / s3);
             this.ctx.setLineDash([dashLen, gapLen]);
             this.ctx.lineWidth = 6 * (size / s3);
 
             var b1 = CONFIG.SCALE_SIZES[1] * (size / s3);
             var off1 = (size - b1) / 2;
-            this.ctx.strokeStyle = 'rgba(255, 200, 0, 0.9)';
+            this.ctx.strokeStyle = activeScale === 1 ? 'rgba(255,200,0,1)' : 'rgba(255,200,0,0.25)';
             this.ctx.strokeRect(off1, off1, b1, b1);
 
             var b2 = CONFIG.SCALE_SIZES[2] * (size / s3);
             var off2 = (size - b2) / 2;
-            this.ctx.strokeStyle = 'rgba(100, 200, 255, 0.9)';
+            this.ctx.strokeStyle = activeScale === 2 ? 'rgba(100,200,255,1)' : 'rgba(100,200,255,0.25)';
             this.ctx.strokeRect(off2, off2, b2, b2);
 
-            this.ctx.strokeStyle = 'rgba(100, 255, 140, 0.9)';
+            this.ctx.strokeStyle = activeScale === 3 ? 'rgba(100,255,140,1)' : 'rgba(100,255,140,0.25)';
             this.ctx.strokeRect(3, 3, size - 6, size - 6);
+            this.ctx.restore();
+        } else {
+            this.ctx.save();
+            this.ctx.setLineDash([dashLen * 0.6, gapLen * 0.6]);
+            this.ctx.lineWidth = 3 * (size / s3);
+            var activeSize = CONFIG.SCALE_SIZES[activeScale] * (size / s3);
+            var activeOff = (size - activeSize) / 2;
+            this.ctx.strokeStyle = 'var(--accent, #6366f1)';
+            this.ctx.globalAlpha = 0.5;
+            this.ctx.strokeRect(activeOff, activeOff, activeSize, activeSize);
             this.ctx.restore();
         }
 
@@ -1094,7 +1127,7 @@ var TokenCanvas = {
 
         target.onmouseenter = function(e) {
             self._rectDirty = true;
-            if (state.currentTool === 'eraser') {
+            if (state.currentTool === 'eraser' || state.currentTool === 'mask') {
                 self.showEraserCursor();
                 self.updateEraserCursor(e);
             }
@@ -1102,7 +1135,7 @@ var TokenCanvas = {
             self.hideEraserCursor();
             if (state.isPanning) {
                 state.isPanning = false;
-                target.style.cursor = state.currentTool === 'eraser' ? 'none' : 'grab';
+                target.style.cursor = (state.currentTool === 'eraser' || state.currentTool === 'mask') ? 'none' : 'grab';
             }
             if (state.isDragging && (state.dragStartPos.x !== state.imageX || state.dragStartPos.y !== state.imageY)) {
                 TokenHistory.save();
@@ -1138,13 +1171,13 @@ var TokenCanvas = {
                 var sc = self.internalSize / 1024;
                 state.dragStart = { x: pos.x / sc - state.imageX, y: pos.y / sc - state.imageY };
                 state.dragStartPos = { x: state.imageX, y: state.imageY };
-            } else if (state.currentTool === 'eraser') {
+            } else if (state.currentTool === 'eraser' || state.currentTool === 'mask') {
                 self.startErasing(pos, e.shiftKey);
             }
         };
 
         target.onmousemove = function(e) {
-            if (state.currentTool === 'eraser' && !state.isPanning) self.updateEraserCursor(e);
+            if ((state.currentTool === 'eraser' || state.currentTool === 'mask') && !state.isPanning) self.updateEraserCursor(e);
             if (state.isPanning) {
                 var dx = (e.clientX - state.panStart.x) / state.viewZoom;
                 var dy = (e.clientY - state.panStart.y) / state.viewZoom;
@@ -1161,7 +1194,7 @@ var TokenCanvas = {
                 state.imageY = pos.y / sc - state.dragStart.y;
                 self.scheduleEffects();
                 self.render();
-            } else if (state.currentTool === 'eraser' && self.isErasing) {
+            } else if ((state.currentTool === 'eraser' || state.currentTool === 'mask') && self.isErasing) {
                 self.addErasePoint(pos.x, pos.y, state.isRestoring);
             }
         };
@@ -1169,7 +1202,7 @@ var TokenCanvas = {
         target.onmouseup = function(e) {
             if (state.isPanning) {
                 state.isPanning = false;
-                if (state.currentTool === 'eraser') {
+                if (state.currentTool === 'eraser' || state.currentTool === 'mask') {
                     target.style.cursor = 'none';
                     self.showEraserCursor();
                     self.updateEraserCursor(e);
@@ -1194,7 +1227,7 @@ var TokenCanvas = {
                 var sc = self.internalSize / 1024;
                 state.dragStart = { x: pos.x / sc - state.imageX, y: pos.y / sc - state.imageY };
                 state.dragStartPos = { x: state.imageX, y: state.imageY };
-            } else if (state.currentTool === 'eraser') {
+            } else if (state.currentTool === 'eraser' || state.currentTool === 'mask') {
                 self.startErasing(pos, false);
             }
         };
@@ -1208,7 +1241,7 @@ var TokenCanvas = {
                 state.imageY = pos.y / sc - state.dragStart.y;
                 self.scheduleEffects();
                 self.render();
-            } else if (state.currentTool === 'eraser' && self.isErasing) {
+            } else if ((state.currentTool === 'eraser' || state.currentTool === 'mask') && self.isErasing) {
                 self.addErasePoint(pos.x, pos.y, state.isRestoring);
             }
         };
@@ -1237,7 +1270,7 @@ var TokenCanvas = {
                 state.viewPanY = state.viewPanY - mouseY * (zoomRatio - 1) / newZoom;
                 state.viewZoom = newZoom;
                 self.updateViewTransform();
-                if (state.currentTool === 'eraser') self.updateEraserCursor(e);
+                if (state.currentTool === 'eraser' || state.currentTool === 'mask') self.updateEraserCursor(e);
             } else if (e.altKey && state.userImage) {
                 var delta = e.deltaY > 0 ? -1 : 1;
                 var newScale = clamp(state.imageScale * 100 + delta, CONFIG.MIN_SCALE, CONFIG.MAX_SCALE);
@@ -1347,6 +1380,11 @@ var TokenCanvas = {
                 self.createImageMask();
                 state.currentPreset = -1;
                 TokenPresets.updateButtons();
+                if (typeof TokenEditor !== 'undefined') {
+                    var undoBar = $('undoBar');
+                    if (undoBar) undoBar.style.display = 'flex';
+                    TokenEditor._updateUndoButtons();
+                }
                 TokenHistory.init();
                 self.render();
 
@@ -1436,7 +1474,7 @@ var TokenCanvas = {
             var od = oData.data;
 
             for (var i = 0; i < ed.length; i += 4) {
-                var isBlocked = ed[i + 3] < 128;
+                var isBlocked = ed[i + 3] >= 128;
                 od[i]     = isBlocked ? 255 : 0;
                 od[i + 1] = isBlocked ? 80  : 0;
                 od[i + 2] = isBlocked ? 80  : 0;

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import sys
-import os
 import urllib.request
-import time
 from pathlib import Path
 
 PORT = 7878

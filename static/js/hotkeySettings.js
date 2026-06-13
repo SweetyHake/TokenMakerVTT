@@ -1,3 +1,10 @@
+const HOTKEY_CATEGORIES = {
+    'Инструменты': ['toolMove', 'toolEraser', 'toolMask', 'toolRemoveBg', 'toolAutoFrame'],
+    'История': ['undo', 'redo'],
+    'Трансформация': ['rotateLeft', 'rotateRight'],
+    'Файлы': ['openFile', 'saveAll']
+};
+
 const HotkeySettings = {
     _listeningAction: null,
     _listeningEl: null,
@@ -5,37 +12,67 @@ const HotkeySettings = {
     init() {
         this._renderTable();
         this._setupResetAll();
+        this._setupSearch();
         document.addEventListener('keydown', e => this._onKey(e), true);
     },
 
-    _renderTable() {
+    _renderTable(filterText) {
         const container = $('hotkeysEditorTable');
         if (!container) return;
         container.innerHTML = '';
-        Object.entries(HOTKEYS_META).forEach(([action, meta]) => {
-            const row = document.createElement('div');
-            row.className = 'hotkey-editor-row';
 
-            const labelEl = document.createElement('span');
-            labelEl.className = 'hotkey-editor-label';
-            if (meta.ctrl) {
-                const ctrlKbd = document.createElement('kbd');
-                ctrlKbd.textContent = 'Ctrl';
-                labelEl.appendChild(ctrlKbd);
-                labelEl.appendChild(document.createTextNode(' + '));
-            }
-            labelEl.appendChild(document.createTextNode(meta.label));
+        const search = (filterText || '').toLowerCase().trim();
 
-            const btn = document.createElement('button');
-            btn.className = 'hotkey-bind-btn';
-            btn.dataset.action = action;
-            btn.textContent = codeToLabel(AppConfig.hotkeys[action]);
-            btn.onclick = () => this._startListening(action, btn);
+        Object.entries(HOTKEY_CATEGORIES).forEach(([category, actions]) => {
+            const items = actions
+                .map(action => {
+                    const meta = HOTKEYS_META[action];
+                    if (!meta) return null;
+                    const label = meta.label.toLowerCase();
+                    const key = codeToLabel(AppConfig.hotkeys[action]).toLowerCase();
+                    if (search && !label.includes(search) && !key.includes(search) && !category.toLowerCase().includes(search)) return null;
+                    return { action, meta, label: meta.label, keyLabel: codeToLabel(AppConfig.hotkeys[action]) };
+                })
+                .filter(Boolean);
 
-            row.appendChild(labelEl);
-            row.appendChild(btn);
-            container.appendChild(row);
+            if (search && items.length === 0) return;
+
+            const sectionTitle = document.createElement('div');
+            sectionTitle.className = 'hotkey-section-title';
+            sectionTitle.textContent = category;
+            container.appendChild(sectionTitle);
+
+            items.forEach(({ action, meta, label, keyLabel }) => {
+                const row = document.createElement('div');
+                row.className = 'hotkey-editor-row';
+
+                const labelEl = document.createElement('span');
+                labelEl.className = 'hotkey-editor-label';
+                if (meta.ctrl) {
+                    const ctrlKbd = document.createElement('kbd');
+                    ctrlKbd.textContent = 'Ctrl';
+                    labelEl.appendChild(ctrlKbd);
+                    labelEl.appendChild(document.createTextNode(' + '));
+                }
+                labelEl.appendChild(document.createTextNode(meta.label));
+
+                const btn = document.createElement('button');
+                btn.className = 'hotkey-bind-btn';
+                btn.dataset.action = action;
+                btn.textContent = keyLabel;
+                btn.onclick = () => this._startListening(action, btn);
+
+                row.appendChild(labelEl);
+                row.appendChild(btn);
+                container.appendChild(row);
+            });
         });
+    },
+
+    _setupSearch() {
+        const input = $('hotkeysSearch');
+        if (!input) return;
+        input.oninput = () => this._renderTable(input.value);
     },
 
     _startListening(action, btn) {

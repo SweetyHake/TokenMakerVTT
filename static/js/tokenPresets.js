@@ -239,7 +239,7 @@ const TokenPresets = {
         TokenCanvas.render();
         toast(`Пресет "${preset.name}" применён`);
 
-        const pinkBtn = document.querySelector('.eraser-mode-btn[data-mode="pink"]');
+        const pinkBtn = document.querySelector('.tool-btn[data-tool="mask"]');
         if (pinkBtn) pinkBtn.click();
     },
 
@@ -250,33 +250,53 @@ const TokenPresets = {
                 const container = $('ringSelectorList');
                 if (!container) return;
                 container.innerHTML = '';
+                const allItems = [];
+
+                const noneItem = document.createElement('div');
+                noneItem.className = 'ring-thumb';
+                noneItem.dataset.tooltip = 'Без кольца';
+                noneItem.style.cssText = 'font-size:10px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;';
+                noneItem.textContent = '✕';
+                noneItem.onclick = () => {
+                    document.querySelectorAll('.ring-thumb').forEach(i => i.classList.remove('active'));
+                    noneItem.classList.add('active');
+                    state.ringImages = {};
+                    TokenCanvas.render();
+                };
+                container.appendChild(noneItem);
+                allItems.push(noneItem);
+
                 if (rings.length === 0) {
                     const empty = document.createElement('div');
                     empty.className = 'ring-empty';
-                    empty.innerHTML = `<span style="font-size:11px;color:var(--text-muted);">Файлы не найдены в папке token_rings</span>`;
+                    empty.innerHTML = `<span style="font-size:9px;color:var(--text-muted);">Нет колец</span>`;
                     container.appendChild(empty);
                     return;
                 }
                 rings.forEach((ring, index) => {
                     const item = document.createElement('div');
-                    item.className = 'ring-item';
+                    item.className = 'ring-thumb';
                     if (index === 0) item.classList.add('active');
                     item.dataset.ringName = ring.name;
                     const img = document.createElement('img');
                     img.src = `/ring_file/${encodeURIComponent(ring.file)}`;
                     img.alt = ring.name;
-                    const label = document.createElement('span');
-                    label.textContent = ring.name;
+                    img.dataset.tooltip = ring.name;
                     item.appendChild(img);
-                    item.appendChild(label);
                     item.onclick = () => {
-                        document.querySelectorAll('.ring-item, .ring-item-none').forEach(i => i.classList.remove('active'));
+                        document.querySelectorAll('.ring-thumb').forEach(i => i.classList.remove('active'));
                         item.classList.add('active');
                         this.loadSingleRing(ring.file);
                     };
                     container.appendChild(item);
+                    allItems.push(item);
                     if (index === 0) this.loadSingleRing(ring.file);
                 });
+
+                const prevBtn = $('ringPrev');
+                const nextBtn = $('ringNext');
+                if (prevBtn) prevBtn.onclick = () => { container.scrollLeft -= 80; };
+                if (nextBtn) nextBtn.onclick = () => { container.scrollLeft += 80; };
             })
             .catch(() => {});
     },
@@ -310,5 +330,4 @@ const TokenPresets = {
         });
     },
 
-    loadExample() {}
 };

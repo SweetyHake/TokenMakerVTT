@@ -14,8 +14,7 @@ const CONFIG = {
     PAN_AMOUNT: 30,
     DEBOUNCE_DELAY: 300,
     MIN_ERASER_SIZE: 1,
-    MAX_ERASER_SIZE: 300,
-    ERASER_SIZE_STEP: 5
+    MAX_ERASER_SIZE: 300
 };
 
 const DEFAULT_HOTKEYS = {
@@ -52,18 +51,37 @@ const AppConfig = {
 
     _defaults() {
         return {
+            theme: 'dark',
             hotkeys: { ...DEFAULT_HOTKEYS },
             dropShadow: { angle: 135, distance: 7, blur: 3, opacity: 0.40 },
             colorCorrection: { saturation: 5, lightness: -5 },
             lastFolders: {
                 quickSave: null,
                 portrait: null,
-                remover: null
+                remover: null,
+                converter: null
             },
             example: {
                 enabled: false,
                 opacity: 50,
                 scaleMode: 2
+            },
+            remover: {
+                format: 'webp',
+                quality: 90,
+                tokenMode: false
+            },
+            converter: {
+                format: 'webp',
+                quality: 90
+            },
+            saveSettings: {
+                quality: 512,
+                scaleMode: 'auto'
+            },
+            panelWidths: {
+                left: 320,
+                right: 320
             }
         };
     },
@@ -74,11 +92,15 @@ const AppConfig = {
             const saved = await res.json();
             const def = this._defaults();
             this._data = {
+                theme: saved.theme || def.theme,
                 hotkeys: { ...def.hotkeys, ...(saved.hotkeys || {}) },
                 dropShadow: { ...def.dropShadow, ...(saved.dropShadow || {}) },
                 colorCorrection: { ...def.colorCorrection, ...(saved.colorCorrection || {}) },
                 lastFolders: { ...def.lastFolders, ...(saved.lastFolders || {}) },
-                example: { ...def.example, ...(saved.example || {}) }
+                example: { ...def.example, ...(saved.example || {}) },
+                remover: { ...def.remover, ...(saved.remover || {}) },
+                saveSettings: { ...def.saveSettings, ...(saved.saveSettings || {}) },
+                panelWidths: { ...def.panelWidths, ...(saved.panelWidths || {}) }
             };
         } catch {
             this._data = this._defaults();
@@ -101,7 +123,9 @@ const AppConfig = {
     get dropShadow() { return this._data.dropShadow; },
     get colorCorrection() { return this._data.colorCorrection; },
     get lastFolders() { return this._data.lastFolders; },
+    get theme() { return this._data.theme; },
 
+    setTheme(val) { this._data.theme = val; this.save(); },
     setHotkey(action, code) { this._data.hotkeys[action] = code; this.save(); },
     setDropShadow(key, val) { this._data.dropShadow[key] = val; this.save(); },
     setColorCorrection(key, val) { this._data.colorCorrection[key] = val; this.save(); },
@@ -112,6 +136,14 @@ const AppConfig = {
     setExample(key, val) { this._data.example[key] = val; this.save(); },
 
     get example() { return this._data.example; },
+    get remover() { return this._data.remover; },
+    get converter() { return this._data.converter; },
+    get saveSettings() { return this._data.saveSettings; },
+    get panelWidths() { return this._data.panelWidths; },
+    setRemover(key, val) { this._data.remover[key] = val; this.save(); },
+    setConverter(key, val) { this._data.converter[key] = val; this.save(); },
+    setSaveSetting(key, val) { this._data.saveSettings[key] = val; this.save(); },
+    setPanelWidth(side, val) { this._data.panelWidths[side] = val; this.save(); },
     resetDropShadow() { this._data.dropShadow = this._defaults().dropShadow; this.save(); },
     resetColorCorrection() { this._data.colorCorrection = this._defaults().colorCorrection; this.save(); }
 };
