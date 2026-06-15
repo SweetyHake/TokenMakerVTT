@@ -519,7 +519,16 @@ def create_default_ring(size, color=(100, 100, 100), width=40):
 
 @app.route('/')
 def index():
-    return render_template('index.html', github_repo=GITHUB_REPO)
+    theme = 'indigo'
+    config_path = BASE_DIR / 'config.json'
+    if config_path.exists():
+        try:
+            import json
+            cfg = json.loads(config_path.read_text(encoding='utf-8'))
+            theme = cfg.get('theme', 'indigo')
+        except Exception:
+            pass
+    return render_template('index.html', github_repo=GITHUB_REPO, theme=theme)
 
 @app.route('/version')
 def version_info():
