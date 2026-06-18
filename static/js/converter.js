@@ -283,7 +283,7 @@ const Converter = {
     },
 
     clearAll() {
-        urlManager.revokeAll();
+        urlManager.revokeByPrefix('conv_');
         this.results.clear();
         this.originalNames.clear();
         this.processingQueue = [];

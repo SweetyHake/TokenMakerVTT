@@ -8,45 +8,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        .eraser-size-input {
-            width: 44px; padding: 2px 4px;
-            background: var(--bg-input); border: 1px solid var(--border);
-            border-radius: var(--radius-sm); color: var(--accent);
-            font-size: 11px; text-align: right; outline: none; font-family: inherit;
-        }
-        .eraser-size-input:focus { border-color: var(--accent); }
-        .eraser-size-input::-webkit-inner-spin-button,
-        .eraser-size-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-        .settings-panel-inner { display: flex; flex: 1; overflow: hidden; }
-        .settings-layout {
-            flex: 1; padding: 32px 40px; display: flex;
-            flex-direction: column; gap: 16px; overflow-y: auto;
-        }
-        .settings-layout h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
-        .about-layout {
-            flex: 1; padding: 40px; display: flex;
-            flex-direction: column; gap: 20px; overflow-y: auto;
-        }
-        .about-header { display: flex; align-items: center; gap: 14px; }
-        .about-logo {
-            width: 48px; height: 48px; background: var(--accent-dim);
-            border: 1px solid var(--accent); border-radius: 12px;
-            display: flex; align-items: center; justify-content: center; color: var(--accent); flex-shrink: 0;
-        }
-        .about-logo svg { width: 24px; height: 24px; }
-        .about-title { font-size: 22px; font-weight: 700; }
-        .about-version { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-        .about-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; max-width: 560px; }
-        .about-device-info {
-            display: flex; align-items: center; gap: 8px; max-width: 420px;
-            padding: 10px 12px; background: var(--bg-panel);
-            border: 1px solid var(--border); border-radius: var(--radius);
-        }
-        .about-device-info svg { width: 14px; height: 14px; color: var(--accent); }
-        .about-device-label { font-size: 12px; color: var(--text-secondary); }
-        .about-device-value { font-size: 12px; color: var(--text-primary); font-weight: 500; margin-left: auto; }
-    </style>
 </head>
 <body>
 <div class="eraser-cursor" id="eraserCursor">
@@ -112,9 +73,9 @@
                     <div class="toggle-row">
                         <label class="toggle-label"><input type="checkbox" id="showErasedCheck"><span class="toggle-track"></span></label>
                         <span>Зоны</span>
-                        <label class="toggle-label" style="margin-left:6px;"><input type="checkbox" id="showProtectionCheck"><span class="toggle-track"></span></label>
+                        <label class="toggle-label toggle-label-gap"><input type="checkbox" id="showProtectionCheck"><span class="toggle-track"></span></label>
                         <span>Защита</span>
-                        <label class="toggle-label" style="margin-left:6px;"><input type="checkbox" id="showBordersCheck"><span class="toggle-track"></span></label>
+                        <label class="toggle-label toggle-label-gap"><input type="checkbox" id="showBordersCheck"><span class="toggle-track"></span></label>
                         <span>Сетка</span>
                     </div>
                     <div class="ctx-divider"></div>
@@ -123,18 +84,18 @@
                         Действия
                     </div>
                     <div class="tool-bar">
-                        <button class="tool-btn active" data-tool="move" data-tooltip="Перемещение (V)"><svg viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg><span>Move</span><kbd>V</kbd></button>
-                        <button class="tool-btn eraser-blue" data-tool="eraser" id="eraserBtn" data-tooltip="Ластик (F)"><svg viewBox="0 0 24 24"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L13.8 2.4c.8-.8 2-.8 2.8 0L21 6.8c.8.8.8 2 0 2.8L10.8 20"/></svg><span>Eraser</span><kbd>F</kbd></button>
-                        <button class="tool-btn eraser-pink" data-tool="mask" id="maskBtn" data-tooltip="Маска (G)"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span>Mask</span><kbd>G</kbd></button>
-                        <button class="tool-btn" data-tool="autoframe" id="autoFrameBtn" data-tooltip="Авто-токен (H)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span>Auto</span><kbd>H</kbd></button>
+                        <button class="tool-btn active" data-tool="move" data-tooltip="Перемещение (V)"><svg viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg><span>Перемещение</span><kbd>V</kbd></button>
+                        <button class="tool-btn" data-tool="autoframe" id="autoFrameBtn" data-tooltip="Авто-токен (H)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span>Авто</span><kbd>H</kbd></button>
+                        <button class="tool-btn eraser-blue" data-tool="eraser" id="eraserBtn" data-tooltip="Ластик (F)"><svg viewBox="0 0 24 24"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L13.8 2.4c.8-.8 2-.8 2.8 0L21 6.8c.8.8.8 2 0 2.8L10.8 20"/></svg><span>Ластик</span><kbd>F</kbd></button>
+                        <button class="tool-btn eraser-pink" data-tool="mask" id="maskBtn" data-tooltip="Маска (G)"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span>Маска</span><kbd>G</kbd></button>
                         <button class="tool-icon-btn" id="removeBgBtn" data-tooltip="Вырезать фон (R)"><svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg></button>
                     </div>
                     <div class="eraser-size-row" id="eraserRow" style="display:none;">
-                        <span class="slider-label" style="min-width:auto;font-size:9px;">Размер</span>
+                        <span class="slider-label">Размер</span>
                         <input type="range" id="eraserSize" min="1" max="100" step="1" value="50">
                         <input type="number" id="eraserSizeInput" class="eraser-size-input" value="50" min="1" max="100">
-                        <span class="slider-unit" style="font-size:9px;">px</span>
-                        <button class="link-btn" id="resetEraserBtn" style="font-size:9px;gap:2px;"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сброс</button>
+                        <span class="slider-unit">px</span>
+                        <button class="link-btn" id="resetEraserBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сброс</button>
                     </div>
                     <div class="ctx-divider"></div>
                     <div class="ctx-subtitle">
@@ -145,13 +106,13 @@
                         <div class="transform-group">
                             <span class="slider-label">M</span>
                             <input type="range" id="scaleSlider" min="10" max="300" step="1" value="100">
-                            <input type="number" id="scaleInput" class="slider-number" value="100" min="10" max="300" style="width:30px;">
+                            <input type="number" id="scaleInput" class="slider-number" value="100" min="10" max="300">
                             <span class="slider-unit">%</span>
                         </div>
                         <div class="transform-group">
                             <span class="slider-label">R</span>
                             <input type="range" id="rotationSlider" min="-180" max="180" step="1" value="0">
-                            <input type="number" id="rotationInput" class="slider-number" value="0" min="-180" max="180" style="width:30px;">
+                            <input type="number" id="rotationInput" class="slider-number" value="0" min="-180" max="180">
                             <span class="slider-unit">°</span>
                         </div>
                         <button class="link-btn" id="resetTransformBtn" data-tooltip="Сбросить"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
@@ -170,7 +131,8 @@
                     <div class="canvas-overlay" id="canvasOverlay">
                         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>
                         <p>Загрузите изображение</p>
-                        <span>Ctrl+V для вставки</span>
+                        <span>Перетащите файл сюда или вставьте из буфера</span>
+                        <span class="overlay-kbd">Ctrl+O</span>
                     </div>
                 </div>
                 <div class="zoom-controls" id="zoomControls">
@@ -183,110 +145,114 @@
             <div class="resize-handle" id="rightPanelHandle"></div>
             <div class="context-panel context-panel-right">
                 <div class="ctx-scroll">
-                    <div class="ctx-subtitle">Кольцо</div>
-                    <div class="ring-carousel">
-                        <button class="ring-arrow" id="ringPrev">◀</button>
-                        <div class="ring-track" id="ringSelectorList"></div>
-                        <button class="ring-arrow" id="ringNext">▶</button>
-                    </div>
 
-                    <div class="ctx-divider"></div>
-
-                    <div class="accordion-header" id="shadowAccordion">
-                        <div class="accordion-header-left">
-                            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                            Тень
+                        <div class="ctx-subtitle">Кольцо</div>
+                        <div class="ring-carousel">
+                            <button class="ring-arrow" id="ringPrev">◀</button>
+                            <div class="ring-track" id="ringSelectorList"></div>
+                            <button class="ring-arrow" id="ringNext">▶</button>
                         </div>
-                        <div class="accordion-header-right">
-                            <label class="effect-check" onclick="event.stopPropagation()"><input type="checkbox" id="dropShadowCheck"><span class="check-box"></span></label>
-                            <span class="accordion-arrow" id="shadowArrow">▶</span>
-                        </div>
-                    </div>
-                    <div class="accordion-body" id="dropShadowSettings">
-                        <div class="slider-row"><span class="slider-label">Угол</span><input type="range" id="shadowAngle" min="-180" max="180" step="1" value="-45"><span class="slider-value" id="shadowAngleVal">-45</span><span class="slider-unit">°</span></div>
-                        <div class="slider-row"><span class="slider-label">Дист.</span><input type="range" id="shadowDistance" min="0" max="50" step="1" value="10"><span class="slider-value" id="shadowDistanceVal">10</span><span class="slider-unit">px</span></div>
-                        <div class="slider-row"><span class="slider-label">Блюр</span><input type="range" id="shadowBlur" min="0" max="40" step="1" value="10"><span class="slider-value" id="shadowBlurVal">10</span><span class="slider-unit">px</span></div>
-                        <div class="slider-row"><span class="slider-label">Опасити</span><input type="range" id="shadowOpacity" min="0" max="100" step="1" value="75"><span class="slider-value" id="shadowOpacityVal">75</span><span class="slider-unit">%</span></div>
-                        <button class="link-btn" id="shadowResetBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
-                    </div>
+                        <div class="ring-counter" id="ringCounter" style="display:none;"></div>
 
-                    <div class="ctx-divider"></div>
+                        <div class="ctx-divider"></div>
 
-                    <div class="accordion-header" id="ccAccordion">
-                        <div class="accordion-header-left">
-                            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                            Цветокоррекция
-                        </div>
-                        <div class="accordion-header-right">
-                            <label class="effect-check" onclick="event.stopPropagation()"><input type="checkbox" id="colorCorrectionCheck"><span class="check-box"></span></label>
-                            <span class="accordion-arrow" id="ccArrow">▶</span>
-                        </div>
-                    </div>
-                    <div class="accordion-body" id="colorCorrectionSettings">
-                        <div class="slider-row"><span class="slider-label">Насыщ.</span><input type="range" id="ccSaturation" min="-100" max="100" step="1" value="5"><span class="slider-value" id="ccSaturationVal">5</span><span class="slider-unit">%</span></div>
-                        <div class="slider-row"><span class="slider-label">Яркость</span><input type="range" id="ccLightness" min="-100" max="100" step="1" value="-5"><span class="slider-value" id="ccLightnessVal">-5</span><span class="slider-unit">%</span></div>
-                        <button class="link-btn" id="ccResetBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
-                    </div>
-
-                    <div class="ctx-divider"></div>
-
-                    <div class="tab-bar">
-                        <button class="tab-btn active" data-tab="exampleTab">Пример</button>
-                        <button class="tab-btn" data-tab="portraitTab">Портрет</button>
-                    </div>
-                    <div class="tab-content" id="exampleTab">
-                        <div class="toggle-row" style="gap:6px;">
-                            <label class="toggle-label"><input type="checkbox" id="exampleCheck"><span class="toggle-track"></span></label>
-                            <span>Показывать</span>
-                        </div>
-                        <div id="exampleSettings" style="display:none;flex-direction:column;gap:4px;margin-top:4px;">
-                            <div class="slider-row"><span class="slider-label">Опасити</span><input type="range" id="exampleOpacitySlider" min="0" max="100" step="1" value="50"><span class="slider-value" id="exampleOpacityVal">50</span><span class="slider-unit">%</span></div>
-                            <div class="field-row" style="gap:4px;"><span class="field-row-label">Масштаб:</span><select class="compact-select" id="exampleScaleSelect"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></div>
-                            <div class="field-row" style="gap:4px;">
-                                <span class="field-row-label" style="font-size:9px;">Файл:</span>
-                                <span id="exampleFileName" style="flex:1;font-size:9px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;">example.png</span>
-                                <button class="link-btn" id="exampleFileBtn" style="font-size:9px;">Файл</button>
+                        <div class="accordion-header" id="shadowAccordion">
+                            <div class="accordion-header-left">
+                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                                Тень
                             </div>
-                            <input type="file" id="exampleFileInput" accept="image/*">
-                            <button class="link-btn" id="exampleResetBtn" style="font-size:9px;"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
+                            <div class="accordion-header-right">
+                                <button class="accordion-reset-btn" id="shadowResetBtn" data-tooltip="Сбросить настройки тени" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+                                <label class="effect-check" onclick="event.stopPropagation()"><input type="checkbox" id="dropShadowCheck"><span class="check-box"></span></label>
+                                <span class="accordion-arrow" id="shadowArrow">▶</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="tab-content" id="portraitTab" style="display:none;">
-                        <div class="portrait-canvas-wrap"><canvas id="portraitCanvas"></canvas></div>
-                        <div class="portrait-controls">
-                            <div class="slider-row"><span class="slider-label">Масштаб</span><input type="range" id="portraitScaleSlider" min="10" max="500" step="1" value="100"><input type="number" id="portraitScaleInput" class="slider-number" value="100" min="10" max="500"><span class="slider-unit">%</span></div>
-                            <div class="slider-row"><span class="slider-label">Поворот</span><input type="range" id="portraitRotationSlider" min="-180" max="180" step="1" value="0"><input type="number" id="portraitRotationInput" class="slider-number" value="0" min="-180" max="180"><span class="slider-unit">°</span></div>
-                            <button class="link-btn" id="portraitResetBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
-                            <div class="portrait-folder-row"><span class="portrait-folder-name" id="portraitFolderName">Папка не выбрана</span><button class="ghost-btn" id="portraitFolderBtn" style="padding:3px 7px;font-size:10px;"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Папка</button></div>
-                            <button class="save-action primary" id="portraitSaveBtn" style="width:100%;"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Сохранить</button>
+                        <div class="accordion-body" id="dropShadowSettings">
+                            <div class="slider-row"><span class="slider-label">Угол</span><input type="range" id="shadowAngle" min="-180" max="180" step="1" value="-45"><span class="slider-value" id="shadowAngleVal">-45</span><span class="slider-unit">°</span></div>
+                            <div class="slider-row"><span class="slider-label">Дист.</span><input type="range" id="shadowDistance" min="0" max="50" step="1" value="10"><span class="slider-value" id="shadowDistanceVal">10</span><span class="slider-unit">px</span></div>
+                            <div class="slider-row"><span class="slider-label">Блюр</span><input type="range" id="shadowBlur" min="0" max="40" step="1" value="10"><span class="slider-value" id="shadowBlurVal">10</span><span class="slider-unit">px</span></div>
+                            <div class="slider-row"><span class="slider-label">Опасити</span><input type="range" id="shadowOpacity" min="0" max="100" step="1" value="75"><span class="slider-value" id="shadowOpacityVal">75</span><span class="slider-unit">%</span></div>
                         </div>
-                    </div>
 
-                    <div class="ctx-divider"></div>
+                        <div class="ctx-divider"></div>
 
-                    <div class="ctx-subtitle">
-                        <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        Параметры
-                    </div>
-                    <div class="field-row"><span class="field-row-label">Качество:</span><select class="compact-select" id="saveQualitySelect"><option value="256">256px</option><option value="512" selected>512px</option><option value="1024">1024px</option><option value="2048">2048px</option></select></div>
-                    <div class="field-row"><span class="field-row-label">Масштаб:</span><select class="compact-select" id="saveScaleSelect"><option value="auto" selected>Авто</option><option value="1">х1</option><option value="2">х2</option><option value="3">х3</option></select></div>
-                    <div class="save-info-hint" id="saveInfoHint" style="margin-top:0;">Авто определяет нужный масштаб по положению изображения</div>
-                    <div class="toggle-row" style="margin-top:4px;">
-                        <label class="toggle-label"><input type="checkbox" id="quickSaveCheck"><span class="toggle-track"></span></label>
-                        <span>Быстрое сохранение</span>
-                    </div>
-                    <div class="quick-save-folder-row" id="quickSaveFolderRow">
-                        <span class="quick-save-folder-name" id="quickSaveFolderName">Папка не выбрана</span>
-                        <button class="ghost-btn" id="quickSaveFolderBtn" style="padding:3px 7px;font-size:10.5px;flex-shrink:0;"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Выбрать</button>
-                    </div>
+                        <div class="accordion-header" id="ccAccordion">
+                            <div class="accordion-header-left">
+                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                Цветокоррекция
+                            </div>
+                            <div class="accordion-header-right">
+                                <button class="accordion-reset-btn" id="ccResetBtn" data-tooltip="Сбросить цветокоррекцию" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+                                <label class="effect-check" onclick="event.stopPropagation()"><input type="checkbox" id="colorCorrectionCheck"><span class="check-box"></span></label>
+                                <span class="accordion-arrow" id="ccArrow">▶</span>
+                            </div>
+                        </div>
+                        <div class="accordion-body" id="colorCorrectionSettings">
+                            <div class="slider-row"><span class="slider-label">Насыщ.</span><input type="range" id="ccSaturation" min="-100" max="100" step="1" value="5"><span class="slider-value" id="ccSaturationVal">5</span><span class="slider-unit">%</span></div>
+                            <div class="slider-row"><span class="slider-label">Яркость</span><input type="range" id="ccLightness" min="-100" max="100" step="1" value="-5"><span class="slider-value" id="ccLightnessVal">-5</span><span class="slider-unit">%</span></div>
+                        </div>
+
+                        <div class="ctx-divider"></div>
+
+                        <div class="ctx-subtitle">Превью</div>
+                        <div class="tab-bar">
+                            <button class="tab-btn active" data-tab="exampleTab">Пример</button>
+                            <button class="tab-btn" data-tab="portraitTab">Портрет</button>
+                        </div>
+                        <div class="tab-content" id="exampleTab">
+                            <div class="toggle-row toggle-row-compact">
+                                <label class="toggle-label"><input type="checkbox" id="exampleCheck"><span class="toggle-track"></span></label>
+                                <span>Показывать</span>
+                            </div>
+                            <div id="exampleSettings" class="example-settings" style="display:none;">
+                                <div class="slider-row"><span class="slider-label">Опасити</span><input type="range" id="exampleOpacitySlider" min="0" max="100" step="1" value="50"><span class="slider-value" id="exampleOpacityVal">50</span><span class="slider-unit">%</span></div>
+                                <div class="field-row field-row-compact"><span class="field-row-label">Масштаб:</span><select class="compact-select" id="exampleScaleSelect"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></div>
+                                <div class="field-row field-row-compact">
+                                    <span class="field-row-label field-row-label-tiny">Файл:</span>
+                                    <span id="exampleFileName" class="example-file-name">example.png</span>
+                                    <button class="link-btn link-btn-tiny" id="exampleFileBtn">Файл</button>
+                                </div>
+                                <input type="file" id="exampleFileInput" accept="image/*">
+                                <button class="link-btn link-btn-tiny" id="exampleResetBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
+                            </div>
+                        </div>
+                        <div class="tab-content" id="portraitTab" style="display:none;">
+                            <div class="portrait-canvas-wrap"><canvas id="portraitCanvas"></canvas></div>
+                            <div class="portrait-controls">
+                                <div class="slider-row"><span class="slider-label">Масштаб</span><input type="range" id="portraitScaleSlider" min="10" max="500" step="1" value="100"><input type="number" id="portraitScaleInput" class="slider-number" value="100" min="10" max="500"><span class="slider-unit">%</span></div>
+                                <div class="slider-row"><span class="slider-label">Поворот</span><input type="range" id="portraitRotationSlider" min="-180" max="180" step="1" value="0"><input type="number" id="portraitRotationInput" class="slider-number" value="0" min="-180" max="180"><span class="slider-unit">°</span></div>
+                                <button class="link-btn" id="portraitResetBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button>
+                                <div class="portrait-folder-row"><span class="portrait-folder-name" id="portraitFolderName">Папка не выбрана</span><button class="ghost-btn ghost-btn-compact-sm" id="portraitFolderBtn"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Папка</button></div>
+                                <button class="save-action primary save-action-block" id="portraitSaveBtn"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Сохранить</button>
+                            </div>
+                        </div>
+
+                        <div class="ctx-divider"></div>
+
+                        <div class="ctx-subtitle">
+                            <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                            Экспорт
+                        </div>
+                        <div class="field-row"><span class="field-row-label">Качество:</span><select class="compact-select" id="saveQualitySelect"><option value="256">256px</option><option value="512" selected>512px</option><option value="1024">1024px</option><option value="2048">2048px</option></select></div>
+                        <div class="field-row"><span class="field-row-label">Масштаб:</span><select class="compact-select" id="saveScaleSelect"><option value="auto" selected>Авто</option><option value="1">х1</option><option value="2">х2</option><option value="3">х3</option></select></div>
+                        <div class="save-info-hint save-info-hint-flush" id="saveInfoHint">Авто определяет нужный масштаб по положению изображения</div>
+                        <div class="toggle-row toggle-row-mt">
+                            <label class="toggle-label"><input type="checkbox" id="quickSaveCheck"><span class="toggle-track"></span></label>
+                            <span>Быстрое сохранение</span>
+                        </div>
+                        <div class="quick-save-folder-row" id="quickSaveFolderRow">
+                            <span class="quick-save-folder-name" id="quickSaveFolderName">Папка не выбрана</span>
+                            <button class="ghost-btn ghost-btn-compact-md" id="quickSaveFolderBtn"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Выбрать</button>
+                        </div>
                     <div class="save-btn-row" id="saveBtnRow">
                         <button class="save-action primary" id="saveWithRing" disabled><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>С кольцом</button>
                         <button class="save-action secondary" id="saveWithoutRing" disabled><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Без кольца</button>
-                        <div class="save-preview" id="savePreview">
+                        <div class="save-preview save-preview-inline" id="savePreview">
                             <div class="save-preview-label">Предпросмотр</div>
                             <img id="savePreviewImg" alt="">
                         </div>
                     </div>
+
                 </div>
             </div>
             </div>
@@ -321,9 +287,9 @@
                             <span id="qualityValue" class="toolbar-value">90%</span>
                         </div>
                         <div class="format-group">
-                            <label class="toggle-label" style="gap:6px;cursor:pointer;">
+                            <label class="toggle-label toggle-label-compact">
                                 <input type="checkbox" id="tokenModeCheck">
-                                <span class="toggle-track" style="transform:scale(0.75);transform-origin:left;"></span>
+                                <span class="toggle-track toggle-track-sm"></span>
                             </label>
                             <span class="toolbar-label">Режим токена</span>
                         </div>
@@ -430,23 +396,28 @@
                     <div class="theme-options">
                         <label class="theme-option">
                             <input type="radio" name="theme" value="dark" checked>
-                            <span class="theme-swatch" style="background:linear-gradient(135deg,#555,#888);"></span>
+                            <span class="theme-swatch theme-swatch-dark"></span>
                             <span>Тёмный</span>
                         </label>
                         <label class="theme-option">
                             <input type="radio" name="theme" value="indigo">
-                            <span class="theme-swatch" style="background:linear-gradient(135deg,#6366f1,#818cf8);"></span>
+                            <span class="theme-swatch theme-swatch-indigo"></span>
                             <span>Индиго</span>
                         </label>
                         <label class="theme-option">
                             <input type="radio" name="theme" value="neon">
-                            <span class="theme-swatch" style="background:linear-gradient(135deg,#10b981,#34d399);"></span>
+                            <span class="theme-swatch theme-swatch-neon"></span>
                             <span>Неоновый</span>
                         </label>
                         <label class="theme-option">
                             <input type="radio" name="theme" value="warm">
-                            <span class="theme-swatch" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);"></span>
+                            <span class="theme-swatch theme-swatch-warm"></span>
                             <span>Тёплый</span>
+                        </label>
+                        <label class="theme-option">
+                            <input type="radio" name="theme" value="light">
+                            <span class="theme-swatch theme-swatch-light"></span>
+                            <span>Светлый</span>
                         </label>
                     </div>
                 </div>
@@ -464,7 +435,7 @@
 
                 <div id="hotkeysEditorTable"></div>
 
-                <button class="ghost-btn danger" id="hotkeysResetAllBtn" style="align-self:flex-start;margin-top:4px;">
+                <button class="ghost-btn danger settings-reset-btn" id="hotkeysResetAllBtn">
                     <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                     Сбросить все клавиши
                 </button>
@@ -498,7 +469,7 @@
                     <svg viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
                     GitHub
                 </a>
-                <button class="accent-btn" id="checkUpdatesBtn" style="padding:5px 12px;font-size:11px;">
+                <button class="accent-btn accent-btn-compact" id="checkUpdatesBtn">
                     <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                     Проверить обновления
                 </button>
@@ -527,17 +498,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-
-<div class="ctx-menu" id="ctxMenu">
-    <button class="ctx-menu-item" data-action="undo"><svg viewBox="0 0 24 24"><path d="M3 10h13a4 4 0 0 1 0 8H9"/><polyline points="7 6 3 10 7 14"/></svg>Отменить</button>
-    <button class="ctx-menu-item" data-action="redo"><svg viewBox="0 0 24 24"><path d="M21 10H8a4 4 0 0 0 0 8h7"/><polyline points="17 6 21 10 17 14"/></svg>Повторить</button>
-    <div class="ctx-menu-sep"></div>
-    <button class="ctx-menu-item" data-action="resetView"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Сбросить вид</button>
-    <button class="ctx-menu-item" data-action="saveWithRing"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>С кольцом</button>
-    <button class="ctx-menu-item" data-action="saveWithoutRing"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Без кольца</button>
-    <div class="ctx-menu-sep"></div>
-    <button class="ctx-menu-item" data-action="copyCoords"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Копировать координаты</button>
-</div>
 
 <script src="{{ url_for('static', filename='js/config.js') }}"></script>
 <script src="{{ url_for('static', filename='js/state.js') }}"></script>

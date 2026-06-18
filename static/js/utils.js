@@ -17,10 +17,11 @@ function debounce(func, wait) {
 function toast(msg, isError) {
     var t = $('toast');
     if (!t) return;
+    if (t._timer) { clearTimeout(t._timer); t._timer = null; }
     t.textContent = msg;
     t.classList.toggle('error', !!isError);
     t.classList.add('show');
-    setTimeout(function() { t.classList.remove('show'); }, 2500);
+    t._timer = setTimeout(function() { t.classList.remove('show'); t._timer = null; }, 2500);
 }
 
 function formatSize(bytes) {
@@ -66,14 +67,15 @@ async function pickFolder() {
 }
 
 function initTooltips() {
-    var el = null, timer = null;
+    var el = null, hideTimer = null, removeTimer = null;
     function removeEl() {
-        if (timer) { clearTimeout(timer); timer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        if (removeTimer) { clearTimeout(removeTimer); removeTimer = null; }
         if (!el) return;
         var e = el;
         el = null;
         e.classList.remove('show');
-        timer = setTimeout(function() { if (e && e.parentNode) e.parentNode.removeChild(e); }, 120);
+        removeTimer = setTimeout(function() { if (e && e.parentNode) e.parentNode.removeChild(e); }, 120);
     }
     document.addEventListener('mouseover', function(e) {
         var target = e.target.closest('[data-tooltip]');
@@ -87,15 +89,20 @@ function initTooltips() {
         el.textContent = text;
         el._target = target;
         document.body.appendChild(el);
-        var rect = target.getBoundingClientRect();
-        var top = rect.top - 6 - el.offsetHeight;
-        if (top < 4) top = rect.bottom + 6;
-        el.style.left = Math.max(4, Math.min(rect.left + rect.width / 2 - el.offsetWidth / 2, window.innerWidth - el.offsetWidth - 4)) + 'px';
-        el.style.top = top + 'px';
-        requestAnimationFrame(function() { el.classList.add('show'); });
+        requestAnimationFrame(function() {
+            if (!el || el._target !== target) return;
+            var rect = target.getBoundingClientRect();
+            var top = rect.top - 6 - el.offsetHeight;
+            if (top < 4) top = rect.bottom + 6;
+            el.style.left = Math.max(4, Math.min(rect.left + rect.width / 2 - el.offsetWidth / 2, window.innerWidth - el.offsetWidth - 4)) + 'px';
+            el.style.top = top + 'px';
+            el.classList.add('show');
+        });
     }, false);
     document.addEventListener('mouseout', function(e) {
-        if (e.target.closest('[data-tooltip]')) setTimeout(removeEl, 20);
+        if (e.target.closest('[data-tooltip]')) {
+            hideTimer = setTimeout(removeEl, 20);
+        }
     }, false);
     document.addEventListener('scroll', removeEl, true);
 }

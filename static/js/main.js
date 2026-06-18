@@ -167,7 +167,7 @@ function initSliderWheels() {
 
 function initTheme() {
     function applyTheme(val) {
-        document.documentElement.classList.remove('theme-neon', 'theme-warm', 'theme-dark');
+        document.documentElement.classList.remove('theme-neon', 'theme-warm', 'theme-dark', 'theme-light');
         if (val && val !== 'indigo') document.documentElement.classList.add('theme-' + val);
     }
     applyTheme(AppConfig.theme);
@@ -204,6 +204,11 @@ function initResizeHandles() {
     var savedLeft = AppConfig.panelWidths.left || 320;
     if (leftPanel) leftPanel.style.width = savedLeft + 'px';
 
+    var rightPanel = document.querySelector('.context-panel-right');
+    var rightHandle = $('rightPanelHandle');
+    var savedRight = AppConfig.panelWidths.right || 320;
+    if (rightPanel) rightPanel.style.width = savedRight + 'px';
+
     function makeResize(handle, panel, side) {
         if (!handle || !panel) return;
         var startX, startW;
@@ -233,6 +238,7 @@ function initResizeHandles() {
     }
 
     makeResize(leftHandle, leftPanel, 'left');
+    makeResize(rightHandle, rightPanel, 'right');
 }
 
 function initWindowControls() {

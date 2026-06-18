@@ -434,7 +434,7 @@ const Remover = {
     },
     
     clearAll() {
-        urlManager.revokeAll();
+        urlManager.revokeByPrefix('img_');
         state.results.clear();
         state.originalImages.clear();
         state.processingQueue = [];

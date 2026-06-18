@@ -21,7 +21,23 @@ const TokenEditor = {
         this.setupKeyboardControls();
         this.setupPortraitVisibility();
         this.setupAccordions();
+        this.setupRightPanelTabs();
         this.updateToolHotkeys();
+    },
+
+    setupRightPanelTabs() {
+        document.querySelectorAll('.rtab-btn[data-rtab]').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.rtab-btn[data-rtab]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.querySelectorAll('.rtab-content[data-rtab-content]').forEach(c => {
+                    c.classList.remove('active');
+                    c.style.display = 'none';
+                });
+                const content = document.querySelector('[data-rtab-content="' + btn.dataset.rtab + '"]');
+                if (content) { content.classList.add('active'); content.style.display = 'flex'; }
+            };
+        });
     },
 
     updateToolHotkeys() {
@@ -200,7 +216,7 @@ const TokenEditor = {
             val = clamp(parseInt(val) || 50, 1, 300);
             state.eraserSize = val;
             TokenCanvas.setEraserSize(val);
-            if (eraserSizeSlider) eraserSizeSlider.value = val;
+            if (eraserSizeSlider) { eraserSizeSlider.value = val; eraserSizeSlider.style.setProperty('--p', ((val - parseFloat(eraserSizeSlider.min)) / (parseFloat(eraserSizeSlider.max) - parseFloat(eraserSizeSlider.min)) * 100) + '%'); }
             if (eraserSizeInput) eraserSizeInput.value = val;
         }
         if (eraserSizeSlider) eraserSizeSlider.oninput = e => applyEraserSize(e.target.value);
@@ -390,6 +406,7 @@ const TokenEditor = {
                 state.imageScale = parseInt(e.target.value) / 100;
                 const input = $('scaleInput');
                 if (input) input.value = e.target.value;
+                e.target.style.setProperty('--p', ((parseFloat(e.target.value) - parseFloat(e.target.min)) / (parseFloat(e.target.max) - parseFloat(e.target.min)) * 100) + '%');
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
                 TokenCanvas.render();
@@ -416,6 +433,7 @@ const TokenEditor = {
                 state.imageRotation = parseInt(e.target.value);
                 const input = $('rotationInput');
                 if (input) input.value = e.target.value;
+                e.target.style.setProperty('--p', ((parseFloat(e.target.value) - parseFloat(e.target.min)) / (parseFloat(e.target.max) - parseFloat(e.target.min)) * 100) + '%');
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
                 TokenCanvas.render();
@@ -599,6 +617,7 @@ const TokenEditor = {
             el.oninput = () => { 
                 AppConfig.setDropShadow(key, parseFloat(el.value) * factor); 
                 if (valEl) valEl.textContent = el.value; 
+                el.style.setProperty('--p', ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100) + '%');
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render(); 
             };
@@ -634,6 +653,7 @@ const TokenEditor = {
             el.oninput = () => { 
                 AppConfig.setColorCorrection(key, parseFloat(el.value)); 
                 if (valEl) valEl.textContent = el.value; 
+                el.style.setProperty('--p', ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100) + '%');
                 TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render(); 
             };
@@ -726,58 +746,6 @@ const TokenEditor = {
     setupKeyboardControls() {
         document.addEventListener('keydown', e => this.handleKeyDown(e));
         document.addEventListener('keyup', e => this.handleKeyUp(e));
-
-        var ctxMenu = $('ctxMenu');
-        if (ctxMenu) {
-            ctxMenu.addEventListener('click', function(e) {
-                var item = e.target.closest('.ctx-menu-item');
-                if (!item) return;
-                var action = item.dataset.action;
-                ctxMenu.classList.remove('show');
-                if (action === 'undo') { TokenHistory.undo(); return; }
-                if (action === 'redo') { TokenHistory.redo(); return; }
-                if (action === 'resetView') { TokenCanvas.resetView(); return; }
-                if (action === 'saveWithRing') { TokenCanvas.save(true); return; }
-                if (action === 'saveWithoutRing') { TokenCanvas.save(false); return; }
-                if (action === 'copyCoords') {
-                    var fo = state.faceOverlay || state._lastFaceOverlay;
-                    var text;
-                    if (fo) {
-                        var pos = TokenEditor._getCanvasFacePos(fo);
-                        text = JSON.stringify({ canvasCx: Math.round(pos.cx), canvasCy: Math.round(pos.cy), canvasSize: Math.round(pos.size) });
-                    } else {
-                        var scale = state.imageScale || 1;
-                        text = JSON.stringify({ scale: Math.round(scale * 100) + '%', rotation: Math.round(state.imageRotation || 0) + '°', x: Math.round(state.imageX || 0), y: Math.round(state.imageY || 0) });
-                    }
-                    navigator.clipboard.writeText(text).then(function() { toast('Скопировано: ' + text); });
-                    return;
-                }
-            });
-
-            document.addEventListener('contextmenu', function(e) {
-                if (e.target.closest('.canvas-area')) {
-                    e.preventDefault();
-                    ctxMenu.classList.remove('show');
-                    setTimeout(function() {
-                        var maxX = window.innerWidth - 190;
-                        var maxY = window.innerHeight - 220;
-                        ctxMenu.style.left = Math.min(e.clientX, maxX) + 'px';
-                        ctxMenu.style.top = Math.min(e.clientY, maxY) + 'px';
-                        ctxMenu.classList.add('show');
-                    }, 0);
-                }
-            });
-
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.ctx-menu')) {
-                    ctxMenu.classList.remove('show');
-                }
-            });
-
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') ctxMenu.classList.remove('show');
-            });
-        }
     },
 
     handleKeyDown(e) {
