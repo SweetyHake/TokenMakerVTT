@@ -219,7 +219,7 @@ const TokenEditor = {
             if (eraserSizeSlider) { eraserSizeSlider.value = val; eraserSizeSlider.style.setProperty('--p', ((val - parseFloat(eraserSizeSlider.min)) / (parseFloat(eraserSizeSlider.max) - parseFloat(eraserSizeSlider.min)) * 100) + '%'); }
             if (eraserSizeInput) eraserSizeInput.value = val;
         }
-        if (eraserSizeSlider) eraserSizeSlider.oninput = e => applyEraserSize(e.target.value);
+        if (eraserSizeSlider) { eraserSizeSlider.oninput = e => applyEraserSize(e.target.value); applyEraserSize(eraserSizeSlider.value); }
         if (eraserSizeInput) {
             eraserSizeInput.onchange = e => applyEraserSize(e.target.value);
             eraserSizeInput.oninput = e => applyEraserSize(e.target.value);
@@ -400,8 +400,12 @@ const TokenEditor = {
 
     setupSliders() {
         const debouncedSave = debounce(() => TokenHistory.save(), CONFIG.DEBOUNCE_DELAY);
+        function setSliderFill(el) {
+            el.style.setProperty('--p', ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100) + '%');
+        }
         const scaleSlider = $('scaleSlider');
         if (scaleSlider) {
+            setSliderFill(scaleSlider);
             scaleSlider.oninput = e => {
                 state.imageScale = parseInt(e.target.value) / 100;
                 const input = $('scaleInput');
@@ -419,7 +423,7 @@ const TokenEditor = {
                 let val = clamp(parseInt(e.target.value) || CONFIG.DEFAULT_SCALE, CONFIG.MIN_SCALE, CONFIG.MAX_SCALE);
                 state.imageScale = val / 100;
                 const slider = $('scaleSlider');
-                if (slider) slider.value = val;
+                if (slider) { slider.value = val; setSliderFill(slider); }
                 e.target.value = val;
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
@@ -429,6 +433,7 @@ const TokenEditor = {
         }
         const rotationSlider = $('rotationSlider');
         if (rotationSlider) {
+            setSliderFill(rotationSlider);
             rotationSlider.oninput = e => {
                 state.imageRotation = parseInt(e.target.value);
                 const input = $('rotationInput');
@@ -446,7 +451,7 @@ const TokenEditor = {
                 let val = clamp(parseInt(e.target.value) || 0, -180, 180);
                 state.imageRotation = val;
                 const slider = $('rotationSlider');
-                if (slider) slider.value = val;
+                if (slider) { slider.value = val; setSliderFill(slider); }
                 e.target.value = val;
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
@@ -508,6 +513,7 @@ const TokenEditor = {
                 if (arrow) arrow.classList.toggle('open', isOpen);
                 if (isOpen) {
                     body.style.maxHeight = body.scrollHeight + 'px';
+                    setTimeout(function() { body.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
                 } else {
                     body.style.maxHeight = '0';
                 }
@@ -614,6 +620,7 @@ const TokenEditor = {
             if (!el) return;
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
+            el.style.setProperty('--p', ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100) + '%');
             el.oninput = () => { 
                 AppConfig.setDropShadow(key, parseFloat(el.value) * factor); 
                 if (valEl) valEl.textContent = el.value; 
@@ -630,7 +637,7 @@ const TokenEditor = {
                 const ds2 = AppConfig.dropShadow;
                 $('shadowAngle').value = ds2.angle; $('shadowDistance').value = ds2.distance;
                 $('shadowBlur').value = ds2.blur; $('shadowOpacity').value = Math.round(ds2.opacity * 100);
-                sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
+                sliders.forEach(({ id, valId }) => { const s = $(id); const valEl = $(valId); if (valEl) valEl.textContent = s.value; s.style.setProperty('--p', ((parseFloat(s.value) - parseFloat(s.min)) / (parseFloat(s.max) - parseFloat(s.min)) * 100) + '%'); });
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render(); 
                 toast('Тень сброшена');
@@ -650,6 +657,7 @@ const TokenEditor = {
             if (!el) return;
             el.value = initVals[id];
             if (valEl) valEl.textContent = el.value;
+            el.style.setProperty('--p', ((parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100) + '%');
             el.oninput = () => { 
                 AppConfig.setColorCorrection(key, parseFloat(el.value)); 
                 if (valEl) valEl.textContent = el.value; 
@@ -665,7 +673,7 @@ const TokenEditor = {
                 AppConfig.resetColorCorrection();
                 const cc2 = AppConfig.colorCorrection;
                 $('ccSaturation').value = cc2.saturation; $('ccLightness').value = cc2.lightness;
-                sliders.forEach(({ id, valId }) => { const valEl = $(valId); if (valEl) valEl.textContent = $(id).value; });
+                sliders.forEach(({ id, valId }) => { const s = $(id); const valEl = $(valId); if (valEl) valEl.textContent = s.value; s.style.setProperty('--p', ((parseFloat(s.value) - parseFloat(s.min)) / (parseFloat(s.max) - parseFloat(s.min)) * 100) + '%'); });
                 TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render(); 
                 toast('Цветокоррекция сброшена');

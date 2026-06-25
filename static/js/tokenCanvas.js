@@ -865,7 +865,7 @@ var TokenCanvas = {
         var slider = $('scaleSlider');
         var input = $('scaleInput');
         var val = Math.round(state.imageScale * 100);
-        if (slider) slider.value = val;
+        if (slider) { slider.value = val; slider.style.setProperty('--p', ((val - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min)) * 100) + '%'); }
         if (input) input.value = val;
     },
 
@@ -873,7 +873,7 @@ var TokenCanvas = {
         var slider = $('rotationSlider');
         var input = $('rotationInput');
         var val = Math.round(state.imageRotation);
-        if (slider) slider.value = val;
+        if (slider) { slider.value = val; slider.style.setProperty('--p', ((val - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min)) * 100) + '%'); }
         if (input) input.value = val;
     },
 

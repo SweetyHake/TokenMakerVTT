@@ -544,7 +544,7 @@ input[type="file"] { display: none; }
 .eraser-size-input::-webkit-inner-spin-button, .eraser-size-input::-webkit-outer-spin-button { -webkit-appearance: none; }
 
 /* ── Transform row ──────────────────────────────────────────── */
-.transform-row { display: flex; align-items: center; gap: 4px; }
+.transform-row { display: flex; flex-direction: column; gap: 4px; }
 .transform-group {
     display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0;
     background: var(--bg-input); border: 1px solid var(--border);
