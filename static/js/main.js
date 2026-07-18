@@ -242,7 +242,6 @@ function initResizeHandles() {
 }
 
 function initWindowControls() {
-    const $ = id => document.getElementById(id);
     const flask = (action) => fetch('/api/window/' + action, { method: 'POST' }).catch(() => {});
     const api = window.pywebview?.api;
 

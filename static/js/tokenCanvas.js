@@ -1301,10 +1301,8 @@ var TokenCanvas = {
     },
 
     cleanupUserImage: function() {
-        if (state.userImageUrl) {
-            URL.revokeObjectURL(state.userImageUrl);
-            state.userImageUrl = null;
-        }
+        urlManager.revoke('userImage');
+        state.userImageUrl = null;
     },
 
     loadImage: function(file, filePath) {
@@ -1315,10 +1313,8 @@ var TokenCanvas = {
         var prevY = state.userImage ? state.imageY : null;
         var prevRotation = state.userImage ? state.imageRotation : null;
 
-        if (state.userImageUrl) {
-            URL.revokeObjectURL(state.userImageUrl);
-            state.userImageUrl = null;
-        }
+        urlManager.revoke('userImage');
+        state.userImageUrl = null;
 
         this._clearCanvasCache();
 

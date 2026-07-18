@@ -153,7 +153,7 @@ def load_session():
         print(f"Загрузка на {DEVICE_NAME}...")
 
         opts = ort.SessionOptions()
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = max(1, os.cpu_count() // 2)
@@ -161,11 +161,19 @@ def load_session():
         opts.enable_mem_reuse = True
         opts.add_session_config_entry("session.disable_prepacking", "0")
 
-        SESSION = ort.InferenceSession(
-            str(ONNX_PATH),
-            sess_options=opts,
-            providers=providers
-        )
+        try:
+            SESSION = ort.InferenceSession(
+                str(ONNX_PATH),
+                sess_options=opts,
+                providers=providers
+            )
+        except Exception:
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            SESSION = ort.InferenceSession(
+                str(ONNX_PATH),
+                sess_options=opts,
+                providers=providers
+            )
 
         print(f" Прогрев модели...")
         try:

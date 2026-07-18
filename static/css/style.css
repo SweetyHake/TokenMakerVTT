@@ -171,6 +171,7 @@ select, input, button { font-family: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; min-height: 30px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+* { scrollbar-width: thin; scrollbar-color: var(--border-light) transparent; }
 
 /* ── Focus ring utility ─────────────────────────────────────── */
 input:focus-visible, select:focus-visible, button:focus-visible,
@@ -524,10 +525,16 @@ input[type="file"] { display: none; }
     border-radius: var(--r-md); color: #fff;
     cursor: pointer; transition: all var(--dur-fast) var(--ease-out);
     flex-shrink: 0; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+    position: relative;
 }
 .tool-icon-btn svg { width: 15px; height: 15px; }
 .tool-icon-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--elev-2), 0 0 12px var(--accent-glow); }
 .tool-icon-btn:active { transform: translateY(0); background: var(--accent-pressed); }
+.tool-icon-btn kbd {
+    position: absolute; bottom: 2px; right: 3px;
+    font-size: 8px; background: rgba(0,0,0,0.25); border-radius: 3px;
+    padding: 0 4px; color: rgba(255,255,255,0.7); font-family: inherit; line-height: 1.6;
+}
 
 /* Legacy compat for JS that expects .tool-icon-btn inline-block */
 #removeBgBtn {
@@ -791,9 +798,9 @@ input[type="file"] { display: none; }
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: var(--sp-3); color: var(--text-muted); pointer-events: none;
 }
-.canvas-overlay svg { width: 56px; height: 56px; color: var(--text-muted); opacity: 0.25; }
-.canvas-overlay p { font-size: var(--fs-lg); color: var(--text-muted); font-weight: var(--fw-medium); }
-.canvas-overlay span { font-size: var(--fs-sm); color: var(--text-muted); opacity: 0.55; display: flex; gap: 6px; align-items: center; }
+.canvas-overlay svg { width: 56px; height: 56px; color: var(--text-secondary); opacity: 0.25; }
+.canvas-overlay p { font-size: var(--fs-lg); color: var(--text-secondary); font-weight: var(--fw-medium); }
+.canvas-overlay span { font-size: var(--fs-sm); color: var(--text-secondary); opacity: 0.6; display: flex; gap: 6px; align-items: center; }
 .canvas-overlay .overlay-kbd {
     display: inline-block; padding: 2px 8px; background: var(--bg-section);
     border: 1px solid var(--border); border-radius: var(--r-xs);

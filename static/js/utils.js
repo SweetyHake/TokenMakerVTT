@@ -38,6 +38,16 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
+function setSliderFill(el) {
+    if (!el) return;
+    const val = parseFloat(el.value);
+    const min = parseFloat(el.min);
+    const max = parseFloat(el.max);
+    const range = max - min;
+    if (range === 0) return;
+    el.style.setProperty('--p', ((val - min) / range * 100) + '%');
+}
+
 async function saveFileWithPicker(blob, suggestedName) {
     const fd = new FormData();
     fd.append('file', blob, suggestedName);
