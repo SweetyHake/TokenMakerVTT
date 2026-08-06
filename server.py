@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import io
+import json
 import subprocess
 import sys
+import time
 import base64
 import warnings
 import argparse
@@ -46,6 +48,7 @@ MAX_IMAGE_DIMENSION = 8192
 SESSION = None
 DEVICE_NAME = "Определение..."
 _PROVIDERS = None
+_PROVIDER_OPTIONS = None
 
 
 def allowed_file(filename):
@@ -61,94 +64,112 @@ def validate_image(image):
 
 
 def get_providers():
-    global DEVICE_NAME
-    available = ort.get_available_providers()
+    global DEVICE_NAME, _PROVIDER_OPTIONS
+    try:
+        available = ort.get_available_providers()
+    except AttributeError:
+        print(" WARNING: onnxruntime повреждён или установлен не полностью.")
+        print(" Выполните: pip install --force-reinstall onnxruntime-directml")
+        DEVICE_NAME = 'CPU (onnxruntime повреждён)'
+        return ['CPUExecutionProvider']
 
     VIRTUAL_ADAPTER_KEYWORDS = [
         'parsec', 'virtual', 'microsoft', 'basic', 'remote',
-        'indirect', 'display only', 'rdp', 'teamviewer', 'anydesk'
+        'indirect', 'display only', 'rdp', 'teamviewer', 'anydesk',
+        'warp', 'software renderer'
     ]
 
     def is_real_gpu(name):
         name_lower = name.lower()
         return not any(kw in name_lower for kw in VIRTUAL_ADAPTER_KEYWORDS)
 
-    def get_gpu_name_windows():
+    def run_cmd(cmd):
         try:
-            import subprocess
-            result = subprocess.run(
-                ['powershell', '-Command',
-                 'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'],
-                capture_output=True, text=True, timeout=5
-            )
-            names = [l.strip() for l in result.stdout.splitlines() if l.strip()]
-            real = [n for n in names if is_real_gpu(n)]
-            return real[0] if real else None
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return result.stdout or ''
         except Exception:
-            return None
+            return ''
 
-    if 'DmlExecutionProvider' in available:
-        gpu_name = get_gpu_name_windows()
-        DEVICE_NAME = f'DirectML ({gpu_name})' if gpu_name else 'DirectML GPU'
-        return ['DmlExecutionProvider', 'CPUExecutionProvider']
+    def get_real_gpus():
+        """Список физических видеокарт (виртуальные адаптеры отсеиваются)."""
+        if sys.platform == 'win32':
+            out = run_cmd(['powershell', '-Command',
+                           'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'])
+            names = [l.strip() for l in out.splitlines() if l.strip()]
+        else:
+            out = run_cmd(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'])
+            names = [l.strip() for l in out.splitlines() if l.strip()]
+            if not names:
+                out = run_cmd(['rocm-smi', '--showproductname'])
+                names = [l.strip() for l in out.splitlines() if l.strip()]
+        return [n for n in names if is_real_gpu(n)]
 
-    elif 'ROCMExecutionProvider' in available:
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['rocm-smi', '--showproductname'],
-                capture_output=True, text=True, timeout=5
-            )
-            lines = [l.strip() for l in result.stdout.splitlines() if l.strip() and is_real_gpu(l)]
-            gpu_name = lines[0] if lines else None
-            DEVICE_NAME = f'ROCm ({gpu_name})' if gpu_name else 'ROCm GPU'
-        except Exception:
-            DEVICE_NAME = 'ROCm GPU'
-        return ['ROCMExecutionProvider', 'CPUExecutionProvider']
-
-    elif 'CUDAExecutionProvider' in available:
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-                capture_output=True, text=True, timeout=5
-            )
-            gpu_name = result.stdout.strip().splitlines()[0].strip()
-            DEVICE_NAME = f'CUDA ({gpu_name})' if gpu_name else 'NVIDIA GPU'
-        except Exception:
-            DEVICE_NAME = 'NVIDIA GPU'
-        return ['CUDAExecutionProvider', 'CPUExecutionProvider']
-
-    else:
+    def get_cpu_name():
+        cpu = ''
         try:
             import platform
             cpu = platform.processor()
-            if not cpu:
-                import subprocess
-                if sys.platform == 'win32':
-                    result = subprocess.run(
-                        ['powershell', '-Command',
-                         '(Get-CimInstance Win32_Processor | Select-Object -First 1).Name'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    cpu = result.stdout.strip()
-                else:
-                    result = subprocess.run(
-                        ['grep', '-m1', 'model name', '/proc/cpuinfo'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    cpu = result.stdout.split(':')[-1].strip() if ':' in result.stdout else ''
-            DEVICE_NAME = cpu if cpu else 'CPU'
         except Exception:
-            DEVICE_NAME = 'CPU'
-        return ['CPUExecutionProvider']
+            cpu = ''
+        if not cpu:
+            if sys.platform == 'win32':
+                cpu = run_cmd(['powershell', '-Command',
+                               '(Get-CimInstance Win32_Processor | Select-Object -First 1).Name']).strip()
+            else:
+                cpu = run_cmd(['grep', '-m1', 'model name', '/proc/cpuinfo'])
+                cpu = cpu.split(':')[-1].strip() if ':' in cpu else ''
+        return cpu
+
+    real_gpus = get_real_gpus()
+    gpu_name = real_gpus[0] if real_gpus else None
+    nvidia_gpu = next((g for g in real_gpus if 'nvidia' in g.lower()), None)
+    has_nvidia = nvidia_gpu is not None
+
+    def device_options():
+        """device_id для выбора дискретной карты на ноутбуках (гибридная графика).
+        Задаётся в config.json ключом gpu_device_id (0, 1, ...)."""
+        try:
+            cfg_path = BASE_DIR / 'config.json'
+            if cfg_path.exists():
+                import json
+                cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
+                dev = cfg.get('gpu_device_id')
+                if isinstance(dev, int) and dev >= 0:
+                    return [{'device_id': dev}] + [{}] * (len(available) - 1)
+        except Exception:
+            pass
+        return None
+
+    if has_nvidia and 'CUDAExecutionProvider' in available:
+        DEVICE_NAME = f'CUDA ({nvidia_gpu})'
+        _PROVIDER_OPTIONS = device_options()
+        return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+
+    if 'ROCMExecutionProvider' in available and gpu_name:
+        DEVICE_NAME = f'ROCm ({gpu_name})'
+        return ['ROCMExecutionProvider', 'CPUExecutionProvider']
+
+    if 'DmlExecutionProvider' in available and gpu_name:
+        DEVICE_NAME = f'DirectML ({gpu_name})'
+        _PROVIDER_OPTIONS = device_options()
+        return ['DmlExecutionProvider', 'CPUExecutionProvider']
+
+    # Нет физической видеокарты: DirectML уйдёт на WARP (софт) — это медленнее CPU
+    cpu_name = get_cpu_name()
+    DEVICE_NAME = cpu_name if cpu_name else 'CPU'
+    return ['CPUExecutionProvider']
 
 
 def load_session():
-    global SESSION, _PROVIDERS
+    global SESSION, _PROVIDERS, DEVICE_NAME
     if SESSION is None:
         if not ONNX_PATH.exists():
             raise FileNotFoundError(f"Файл не найден: {ONNX_PATH}")
+        if not hasattr(ort, 'InferenceSession'):
+            raise RuntimeError(
+                "onnxruntime повреждён или установлен не полностью. "
+                "Выполните: pip install --force-reinstall onnxruntime-directml"
+            )
         providers = _PROVIDERS
         print(f"Загрузка на {DEVICE_NAME}...")
 
@@ -165,30 +186,100 @@ def load_session():
             SESSION = ort.InferenceSession(
                 str(ONNX_PATH),
                 sess_options=opts,
-                providers=providers
+                providers=providers,
+                provider_options=_PROVIDER_OPTIONS
             )
-        except Exception:
+        except Exception as e:
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-            SESSION = ort.InferenceSession(
-                str(ONNX_PATH),
-                sess_options=opts,
-                providers=providers
-            )
+            print(f"  Оптимизация EXTENDED не загрузилась ({e})")
+            print("  Откат на BASIC...")
+            try:
+                SESSION = ort.InferenceSession(
+                    str(ONNX_PATH),
+                    sess_options=opts,
+                    providers=providers,
+                    provider_options=_PROVIDER_OPTIONS
+                )
+            except Exception:
+                if providers != ['CPUExecutionProvider']:
+                    print(f"  GPU-провайдер не запустился ({e})")
+                    print("  Откат на CPU...")
+                    DEVICE_NAME = 'CPU (fallback)'
+                SESSION = ort.InferenceSession(
+                    str(ONNX_PATH),
+                    sess_options=opts,
+                    providers=['CPUExecutionProvider']
+                )
 
         print(f" Прогрев модели...")
+        warmup_time = None
         try:
             dummy = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
             input_name = SESSION.get_inputs()[0].name
+            t0 = time.time()
             SESSION.run(None, {input_name: dummy})
+            warmup_time = time.time() - t0
             del dummy
             import gc
             gc.collect()
-            print(f" Прогрев завершён.")
+            print(f" Прогрев завершён ({warmup_time:.2f} с).")
         except Exception as e:
             print(f" Прогрев не удался: {e}")
 
         print(f" Готово!\n")
+        threading.Thread(target=_auto_tune_dml, args=(warmup_time,), daemon=True).start()
     return SESSION
+
+
+def _auto_tune_dml(default_time=None):
+    """Фоновый подбор самого быстрого адаптера DirectML (гибридные ноутбуки).
+    Результат сохраняется в config.json (gpu_device_id) и применится после перезапуска."""
+    global _PROVIDER_OPTIONS, DEVICE_NAME
+    if 'DmlExecutionProvider' not in _PROVIDERS or _PROVIDER_OPTIONS:
+        return
+    import time as _t
+    try:
+        cfg_path = BASE_DIR / 'config.json'
+        cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
+        if isinstance(cfg.get('gpu_device_id'), int):
+            return
+        best_id, best_time = None, None
+        for did in range(3):
+            try:
+                opts = ort.SessionOptions()
+                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+                opts.intra_op_num_threads = 2
+                sess = ort.InferenceSession(
+                    str(ONNX_PATH),
+                    sess_options=opts,
+                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'],
+                    provider_options=[{'device_id': did}, {}]
+                )
+                input_name = sess.get_inputs()[0].name
+                x = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
+                t0 = _t.time()
+                sess.run(None, {input_name: x})
+                dt = _t.time() - t0
+                del sess, x
+                print(f"  [tune] адаптер #{did}: {dt:.2f} с")
+                if best_time is None or dt < best_time:
+                    best_id, best_time = did, dt
+            except Exception as e:
+                print(f"  [tune] адаптер #{did}: не доступен ({e})")
+                break
+        if best_id is None or best_time is None:
+            return
+        if default_time is not None and best_time >= default_time * 0.85:
+            print(f"  [tune] текущий адаптер оптимален ({default_time:.2f} с) — оставляем")
+            return
+        cfg['gpu_device_id'] = best_id
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+        _PROVIDER_OPTIONS = [{'device_id': best_id}] + [{}] * (len(_PROVIDERS) - 1)
+        DEVICE_NAME += f' (адаптер #{best_id})'
+        print(f"  [tune] выбран адаптер #{best_id} ({best_time:.2f} с) — сохранено в config.json")
+        print("  [tune] перезапустите приложение, чтобы применить")
+    except Exception as e:
+        print(f"  [tune] не удалось: {e}")
 
 
 def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
@@ -244,7 +335,9 @@ def remove_background(image, edge_blur=1):
     input_name = session.get_inputs()[0].name
 
     print(f"  [RAM] перед инференсом: {mem():.0f} МБ")
+    t_infer = time.time()
     output = session.run(None, {input_name: tensor})
+    print(f"  Инференс: {time.time() - t_infer:.2f} с")
     print(f"  [RAM] после инференса: {mem():.0f} МБ")
 
     del tensor, arr
@@ -261,7 +354,10 @@ def remove_background(image, edge_blur=1):
     if mask.ndim == 3:
         mask = mask[0]
 
-    mask = 1.0 / (1.0 + np.exp(-mask))
+    if mask.min() >= 0.0 and mask.max() <= 1.0:
+        mask = np.clip(mask, 0.0, 1.0)
+    else:
+        mask = 1.0 / (1.0 + np.exp(-mask))
     mn, mx = mask.min(), mask.max()
     mask = ((mask - mn) / (mx - mn + 1e-8) * 255).astype(np.uint8)
 
@@ -694,7 +790,13 @@ def ring():
 @app.route('/mask')
 def mask():
     if MASK_PATH.exists():
-        response = send_file(str(MASK_PATH), mimetype='image/png')
+        img = Image.open(MASK_PATH)
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+        response = send_file(buffer, mimetype='image/png')
         response.headers['Cache-Control'] = 'public, max-age=86400'
         return response
     img = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))

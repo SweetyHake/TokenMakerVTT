@@ -1,3 +1,4 @@
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 APP_NAME = "TokenMaker"
-GITHUB_REPO = "SweetyHake/TokenMakerVTT"  # Например: "username/TokenMakerVTT" — вписать перед сборкой
+MODEL_FILE = "model.onnx"
+GITHUB_REPO = "SweetyHake/TokenMakerVTT"  # Вписать перед сборкой

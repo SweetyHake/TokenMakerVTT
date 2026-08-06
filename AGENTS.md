@@ -52,13 +52,13 @@ No `requirements.txt` — the batch file is the source of truth.
 - `version.py:GITHUB_REPO` — set to `"username/TokenMakerVTT"` before building
 - On startup, `updater.py` checks GitHub Releases for newer version
 - If newer version found, splash screen shows download button
-- If `model.onnx` is missing, it's auto-downloaded from the release assets
+- `model.onnx` is NOT auto-downloaded — the user places it manually next to the exe (see "External assets")
 
 ## Architecture
 
 - **Desktop shell**: pywebview (edgechromium) → `app.py:138-148`
 - **Web server**: Flask on `127.0.0.1:7878` → `server.py`
-- **AI inference**: ONNX Runtime (DirectML → CUDA → CPU fallback) with `model.onnx` (BiRefNet)
+- **AI inference**: ONNX Runtime with `model.onnx` (BiRefNet **или** RMBG-2.0/IS-Net — обе поддерживаются). `get_providers()` in `server.py` detects physical GPUs via WMI (virtual/Parsec/RDP adapters are filtered), then picks CUDA (NVIDIA) → ROCm → DirectML → CPU. Runtime fallback to CPU if the GPU provider fails to load.
 - **Frontend**: Vanilla JS, global `state` object mutated directly by all modules
 - **Canvas**: internal 2048×2048 px, logical coords in 1024 px space (scale factor = 2)
 
@@ -95,7 +95,15 @@ Haar → heuristic
 If OpenCV DNN model files (`opencv_face_detector_uint8.pb` + `.pbtxt`) exist in OpenCV's data dir, DNN is tried before Haar.
 
 External models (`.gitignore`d):
-- `model.onnx` — BiRefNet (background removal)
+- `model.onnx` — BiRefNet или RMBG-2.0/IS-Net (background removal)
+
+### `model.onnx` требования
+
+- Вход: 1024×1024×3 RGB, ImageNet-нормализация (mean 0.485/0.456/0.406, std 0.229/0.224/0.225) — всё это делает `server.py` сам
+- Выход: одноканальная маска 1024×1024. Если выход уже в [0,1] (RMBG-2.0 `alphas` содержит sigmoid в графе) — sigmoid повторно НЕ применяется (`server.py` detect: `mask.min() >= 0 and mask.max() <= 1`); для сырых logits (BiRefNet) — применяется
+- Вход/выход могут быть объявлены как `dynamic` (напр. `[1,3,'height','width']`), но фактически модель может требовать ровно 1024×1024 (фикс. split в декодере)
+- Источник: HuggingFace, напр. `briaai/RMBG-2.0` (`onnx/model_fp16.onnx`, ~514 МБ) или `DanielLavric/BiRefNet-ONNX`
+- `server.py` грузит с `ORT_ENABLE_EXTENDED`, при падении (`InsertedPrecisionFreeCast` — известный баг ORT на LayerNorm-fusion) откатывается на `ORT_ENABLE_BASIC`
 
 | Route | Note |
 |-------|------|
@@ -141,7 +149,7 @@ Stored in `config.json`, managed by `AppConfig` (JS) with a rebindable UI in `ho
 
 ## External assets
 
-- `model.onnx` — BiRefNet, must be placed beside `server.py` (not in repo)
+- `model.onnx` — BiRefNet или RMBG-2.0/IS-Net, кладётся вручную рядом с `server.py` (не в репозитории, в `.gitignore`)
 - `token_rings/` — folder with ring PNG/WebP files (optional)
 - `presets/` — folder with preset mask images (optional)
 - Images loaded from clipboard/files are never stored on disk
