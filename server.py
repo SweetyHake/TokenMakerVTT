@@ -160,6 +160,15 @@ def get_providers():
     return ['CPUExecutionProvider']
 
 
+# Detect device at import time (without loading the model).
+# Выполняется сразу после определения get_providers — ДО любого вызова load_session()
+# (включая блок __main__ ниже), иначе сессия создаётся с providers=None → CPU.
+try:
+    _PROVIDERS = get_providers()
+except Exception:
+    _PROVIDERS = ['CPUExecutionProvider']
+
+
 def load_session():
     global SESSION, _PROVIDERS, DEVICE_NAME
     if SESSION is None:
@@ -1333,9 +1342,3 @@ def shutdown():
     except Exception:
         return 'error', 500
 
-
-# Detect device at import time (without loading the model)
-try:
-    _PROVIDERS = get_providers()
-except Exception:
-    _PROVIDERS = ['CPUExecutionProvider']

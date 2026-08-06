@@ -1442,3 +1442,35 @@ input[type="file"] { display: none; }
     cursor: pointer; transition: background 0.15s; padding: 0;
 }
 .model-banner-close:hover { background: rgba(239,68,68,0.15); }
+
+/* ================================================================
+   ABOUT: MANUAL UPDATE
+   ================================================================ */
+.about-update {
+    display: flex; flex-direction: column; gap: 10px;
+    max-width: 460px; padding: var(--sp-4);
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: var(--r-md); box-shadow: var(--elev-1);
+    animation: slide-up 0.25s var(--ease-out);
+}
+.about-update[hidden] { display: none; }
+.about-update-status {
+    font-size: var(--fs-sm); color: var(--text-secondary);
+    line-height: 1.5;
+}
+.about-update-status b { color: var(--accent); }
+.about-update-progress {
+    display: flex; align-items: center; gap: 10px;
+}
+.about-update-progress[hidden] { display: none; }
+.about-update-progress .progress-bar { flex: 1; width: auto; }
+.about-update-pct {
+    font-size: var(--fs-xs); color: var(--accent);
+    min-width: 34px; text-align: right; font-weight: var(--fw-medium);
+}
+.about-update-actions {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.about-update-actions:empty { display: none; }
+.about-update-actions .about-link { padding: 6px 12px; font-size: var(--fs-sm); }
+#checkUpdatesBtn:disabled { opacity: 0.5; cursor: not-allowed; }

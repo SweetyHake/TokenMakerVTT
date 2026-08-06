@@ -303,6 +303,146 @@ function initModelCheck() {
     }).catch(function() {});
 }
 
+let aboutUpdating = false;
+
+function initAboutUpdate() {
+    fetch('/version').then(r => r.json()).then(d => {
+        const v = $('aboutVersion');
+        if (v) v.textContent = 'Версия ' + (d.version || '?');
+        const tv = $('titleVersion');
+        if (tv) tv.textContent = d.version || '';
+    }).catch(() => {});
+    fetch('/device').then(r => r.json()).then(d => {
+        const el = $('aboutDeviceValue');
+        if (el) el.textContent = (d.device || 'CPU').replace('DirectML', 'DirectML');
+    }).catch(() => {});
+
+    const btn = $('checkUpdatesBtn');
+    if (btn) btn.onclick = () => checkForUpdatesManual();
+}
+
+function aboutUpdateSetStatus(html) {
+    const st = $('aboutUpdateStatus');
+    if (st) st.innerHTML = html;
+}
+
+function aboutUpdateShowProgress(pct) {
+    const box = $('aboutUpdateBox');
+    if (!box) return;
+    box.hidden = false;
+    const prog = $('aboutUpdateProgress');
+    const bar = $('aboutUpdateBarFill');
+    const pctEl = $('aboutUpdatePct');
+    const actions = $('aboutUpdateActions');
+    if (prog) prog.hidden = false;
+    if (bar) bar.style.width = pct + '%';
+    if (pctEl) pctEl.textContent = pct + '%';
+    if (actions) actions.innerHTML = '';
+    aboutUpdateSetStatus('Скачивание обновления...');
+}
+
+function hideAboutUpdate() {
+    const box = $('aboutUpdateBox');
+    if (box) box.hidden = true;
+    const prog = $('aboutUpdateProgress');
+    if (prog) prog.hidden = true;
+    const actions = $('aboutUpdateActions');
+    if (actions) actions.innerHTML = '';
+    const btn = $('checkUpdatesBtn');
+    if (btn) btn.disabled = false;
+    aboutUpdating = false;
+}
+
+function checkForUpdatesManual() {
+    if (aboutUpdating) return;
+    aboutUpdating = true;
+    const box = $('aboutUpdateBox');
+    const btn = $('checkUpdatesBtn');
+    const actions = $('aboutUpdateActions');
+    if (box) box.hidden = false;
+    if (actions) actions.innerHTML = '';
+    if (btn) btn.disabled = true;
+    aboutUpdateSetStatus('Проверка обновлений...');
+    fetch('/check_update', { method: 'POST' }).catch(() => {});
+    pollAboutUpdate(40);
+}
+
+function pollAboutUpdate(retries) {
+    fetch('/update_status').then(r => r.json()).then(d => {
+        const actions = $('aboutUpdateActions');
+        if (d.download_done) {
+            aboutUpdateSetStatus('Обновление <b>' + (d.update_tag || '') + '</b> скачано! Перезапустить приложение?');
+            if (actions) actions.innerHTML =
+                '<button class="accent-btn accent-btn-compact" onclick="applyAboutUpdate()">Перезапустить</button>' +
+                '<button class="about-link" onclick="hideAboutUpdate()">Позже</button>';
+            return;
+        }
+        if (d.download_progress >= 0 && !d.download_error) {
+            aboutUpdateShowProgress(d.download_progress);
+            setTimeout(() => pollAboutUpdate(retries), 400);
+            return;
+        }
+        if (d.download_error) {
+            aboutUpdateSetStatus('<span style="color:#ef4444">Ошибка скачивания: ' + d.download_error + '</span>');
+            if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+            return;
+        }
+        if (d.update_available && d.update_url) {
+            aboutUpdateSetStatus('Доступна версия <b>' + (d.update_tag || '') + '</b> (текущая: ' + d.current_version + ')');
+            if (actions) actions.innerHTML =
+                '<button class="accent-btn accent-btn-compact" onclick="startAboutDownload()">Скачать</button>' +
+                '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+            return;
+        }
+        if (d.update_checked) {
+            aboutUpdateSetStatus('Обновлений нет — у вас последняя версия');
+            if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+            return;
+        }
+        if (retries > 0) setTimeout(() => pollAboutUpdate(retries - 1), 500);
+        else {
+            aboutUpdateSetStatus('Не удалось проверить обновления');
+            if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+        }
+    }).catch(() => {
+        if (retries > 0) setTimeout(() => pollAboutUpdate(retries - 1), 500);
+        else {
+            aboutUpdateSetStatus('Не удалось проверить обновления');
+            const actions = $('aboutUpdateActions');
+            if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+        }
+    });
+}
+
+function startAboutDownload() {
+    aboutUpdating = true;
+    if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = true;
+    const actions = $('aboutUpdateActions');
+    if (actions) actions.innerHTML = '';
+    aboutUpdateShowProgress(0);
+    fetch('/start_update_download', { method: 'POST' }).catch(() => {});
+    pollAboutUpdate(600);
+}
+
+function applyAboutUpdate() {
+    aboutUpdateSetStatus('Перезапуск...');
+    const actions = $('aboutUpdateActions');
+    if (actions) actions.innerHTML = '';
+    fetch('/apply_update', { method: 'POST' }).catch(() => {});
+    fetch('/api/window/destroy', { method: 'POST' }).catch(() => {});
+    setTimeout(() => { try { window.location.href = '/'; } catch (e) {} }, 2000);
+}
+
 async function init() {
     await AppConfig.load();
     initTheme();
@@ -316,6 +456,7 @@ async function init() {
     initSliderWheels();
     initTooltips();
     initModelCheck();
+    initAboutUpdate();
     Remover.init();
     Converter.init();
     TokenEditor.init();
