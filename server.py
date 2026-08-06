@@ -227,40 +227,71 @@ def load_session():
             print(f" Прогрев не удался: {e}")
 
         print(f" Готово!\n")
-        threading.Thread(target=_auto_tune_dml, args=(warmup_time,), daemon=True).start()
+        _spawn_tune_child()
     return SESSION
 
 
-def _auto_tune_dml(default_time=None):
-    """Фоновый подбор самого быстрого адаптера DirectML (гибридные ноутбуки).
-    Результат сохраняется в config.json (gpu_device_id) и применится после перезапуска."""
-    global _PROVIDER_OPTIONS, DEVICE_NAME
-    if 'DmlExecutionProvider' not in _PROVIDERS or _PROVIDER_OPTIONS:
-        return
-    import time as _t
+def _spawn_tune_child():
+    """Запускает подбор адаптера DirectML в ОТДЕЛЬНОМ процессе (--tune-gpu).
+    Параллельные DML-сессии в одном процессе ломают основной инференс
+    (баг onnxruntime-directml: ExecuteKernel 80070057), поэтому изолируем пробу."""
     try:
+        if 'DmlExecutionProvider' not in _PROVIDERS or _PROVIDER_OPTIONS:
+            return
         cfg_path = BASE_DIR / 'config.json'
         cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
         if isinstance(cfg.get('gpu_device_id'), int):
             return
-        best_id, best_time = None, None
-        for did in range(3):
-            try:
-                opts = ort.SessionOptions()
-                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-                opts.intra_op_num_threads = 2
+        if getattr(sys, 'frozen', False):
+            args = [sys.executable, '--tune-gpu']
+        else:
+            args = [sys.executable, str(BASE_DIR / 'server.py'), '--tune-gpu']
+        subprocess.Popen(args, creationflags=0x08000000, close_fds=True)
+        print(" Запущен фоновый подбор адаптера DirectML (отдельный процесс)...")
+    except Exception as e:
+        print(f" Не удалось запустить подбор адаптера: {e}")
+
+
+def cli_tune_gpu():
+    """CLI-подбор самого быстрого адаптера DirectML (гибридные ноутбуки).
+    Вызывается в отдельном процессе с флагом --tune-gpu.
+    Результат пишется в config.json (gpu_device_id) и применится после перезапуска."""
+    import time as _t
+    try:
+        if 'DmlExecutionProvider' not in ort.get_available_providers():
+            return
+
+        def bench(device_id):
+            opts = ort.SessionOptions()
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            opts.intra_op_num_threads = 2
+            if device_id is None:
                 sess = ort.InferenceSession(
-                    str(ONNX_PATH),
-                    sess_options=opts,
-                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'],
-                    provider_options=[{'device_id': did}, {}]
+                    str(ONNX_PATH), sess_options=opts,
+                    providers=['DmlExecutionProvider', 'CPUExecutionProvider']
                 )
-                input_name = sess.get_inputs()[0].name
-                x = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
-                t0 = _t.time()
-                sess.run(None, {input_name: x})
-                dt = _t.time() - t0
-                del sess, x
+            else:
+                sess = ort.InferenceSession(
+                    str(ONNX_PATH), sess_options=opts,
+                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'],
+                    provider_options=[{'device_id': device_id}, {}]
+                )
+            input_name = sess.get_inputs()[0].name
+            x = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
+            t0 = _t.time()
+            sess.run(None, {input_name: x})
+            dt = _t.time() - t0
+            del sess, x
+            return dt
+
+        default_t = bench(None)
+        print(f"  [tune] дефолтный адаптер: {default_t:.2f} с")
+        best_id, best_time = None, None
+        # Адаптеры 0-1: реальные кандидаты (iGPU + дискретная). 2+ обычно WARP/виртуальный —
+        # он заведомо медленнее.
+        for did in range(2):
+            try:
+                dt = bench(did)
                 print(f"  [tune] адаптер #{did}: {dt:.2f} с")
                 if best_time is None or dt < best_time:
                     best_id, best_time = did, dt
@@ -269,17 +300,16 @@ def _auto_tune_dml(default_time=None):
                 break
         if best_id is None or best_time is None:
             return
-        if default_time is not None and best_time >= default_time * 0.85:
-            print(f"  [tune] текущий адаптер оптимален ({default_time:.2f} с) — оставляем")
+        if best_time >= default_t * 0.85:
+            print(f"  [tune] текущий адаптер оптимален ({default_t:.2f} с) — оставляем")
             return
+        cfg_path = BASE_DIR / 'config.json'
+        cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
         cfg['gpu_device_id'] = best_id
         cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
-        _PROVIDER_OPTIONS = [{'device_id': best_id}] + [{}] * (len(_PROVIDERS) - 1)
-        DEVICE_NAME += f' (адаптер #{best_id})'
-        print(f"  [tune] выбран адаптер #{best_id} ({best_time:.2f} с) — сохранено в config.json")
-        print("  [tune] перезапустите приложение, чтобы применить")
+        print(f"  [tune] выбран адаптер #{best_id} ({best_time:.2f} с), сохранено в config.json")
     except Exception as e:
-        print(f"  [tune] не удалось: {e}")
+        print(f"  [tune] ошибка: {e}")
 
 
 def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
@@ -638,6 +668,16 @@ def index():
 def version_info():
     return jsonify({'version': __version__, 'name': APP_NAME})
 
+
+@app.route('/model_status')
+def model_status():
+    exists = ONNX_PATH.exists()
+    return jsonify({
+        'exists': exists,
+        'size': ONNX_PATH.stat().st_size if exists else 0,
+        'path': str(ONNX_PATH)
+    })
+
 @app.route('/icon')
 def app_icon():
     return send_file(BASE_DIR / 'icon.ico', mimetype='image/x-icon')
@@ -739,18 +779,34 @@ def apply_update():
 
         bat = BASE_DIR / '_update.bat'
         bat.write_text(
-            f'@echo off\n'
-            f':loop\n'
-            f'tasklist /FI "IMAGENAME eq {exe_name}" 2>nul | find /I "{exe_name}" >nul\n'
-            f'if not errorlevel 1 (\n'
-            f'    ping 127.0.0.1 -n 2 > nul\n'
-            f'    goto loop\n'
-            f')\n'
-            f'copy /Y "{src}" "{dst}" > nul\n'
-            f'if exist "{src}" del "{src}" > nul\n'
-            f'start "" "{dst}"\n'
-            f'del "%~f0"\n',
-            encoding='utf-8'
+            '@echo off\r\n'
+            'setlocal\r\n'
+            'set "SRC={src}"\r\n'
+            'set "DST={dst}"\r\n'
+            'set "EXE={exe_name}"\r\n'
+            'set /a tries=0\r\n'
+            ':waitloop\r\n'
+            'tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul\r\n'
+            'if errorlevel 1 goto copy\r\n'
+            'set /a tries+=1\r\n'
+            'if %tries% geq 30 (\r\n'
+            '    taskkill /F /IM "%EXE%" >nul 2>&1\r\n'
+            '    goto copy\r\n'
+            ')\r\n'
+            'ping 127.0.0.1 -n 2 > nul\r\n'
+            'goto waitloop\r\n'
+            ':copy\r\n'
+            'copy /Y "%SRC%" "%DST%" >nul 2>&1\r\n'
+            'if not exist "%DST%" goto fail\r\n'
+            'if exist "%SRC%" del "%SRC%" >nul 2>&1\r\n'
+            'start "" /D "%~dp0" "%DST%" >nul 2>&1\r\n'
+            'del "%~f0" >nul 2>&1\r\n'
+            'exit /b 0\r\n'
+            ':fail\r\n'
+            'if exist "%SRC%" del "%SRC%" >nul 2>&1\r\n'
+            'del "%~f0" >nul 2>&1\r\n'
+            'exit /b 1\r\n',
+            encoding='cp866', errors='replace'
         )
         subprocess.Popen(
             ['cmd', '/c', str(bat)],
@@ -879,6 +935,8 @@ def process():
 
         return send_file(buffer, mimetype=mime, as_attachment=False,
                         download_name=f'result.{format_type}')
+    except FileNotFoundError:
+        return jsonify({'error': 'Файл модели model.onnx не найден. Положите его рядом с приложением'}), 500
     except Exception as e:
         gc.collect()
         app.logger.error('process error: %s', e, exc_info=True)
@@ -1000,6 +1058,8 @@ def create_token():
 
         return send_file(buffer, mimetype=mime, as_attachment=False,
                         download_name=f'token.{format_type}')
+    except FileNotFoundError:
+        return jsonify({'error': 'Файл модели model.onnx не найден. Положите его рядом с приложением'}), 500
     except Exception as e:
         gc.collect()
         app.logger.error('create_token error: %s', e, exc_info=True)
@@ -1066,12 +1126,15 @@ if __name__ == '__main__' and not getattr(sys, 'frozen', False):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--remove-bg', metavar='FILE')
     parser.add_argument('--to-webp', metavar='FILE')
+    parser.add_argument('--tune-gpu', action='store_true')
     args, _ = parser.parse_known_args()
 
     if args.remove_bg:
         cli_remove_bg(args.remove_bg)
     elif args.to_webp:
         cli_to_webp(args.to_webp)
+    elif args.tune_gpu:
+        cli_tune_gpu()
     else:
         print("\n" + "=" * 50)
         print("Background Remover & Token Maker")

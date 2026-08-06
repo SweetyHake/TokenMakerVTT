@@ -105,6 +105,11 @@ def main():
 
     global PID_FILE
 
+    if '--tune-gpu' in sys.argv:
+        from server import cli_tune_gpu
+        cli_tune_gpu()
+        return
+
     PORT = 7878
     URL = f'http://localhost:{PORT}'
     SPLASH_URL = f'http://localhost:{PORT}/splash'

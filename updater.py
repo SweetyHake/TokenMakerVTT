@@ -191,6 +191,10 @@ def download_update():
                     if total:
                         _state.set_download_progress(int(downloaded * 100 / total))
 
+        if dest.stat().st_size < 1024 * 1024:
+            dest.unlink(missing_ok=True)
+            raise ValueError("Скачанный файл повреждён (слишком маленький)")
+
         _state.complete_download(path=str(dest))
         _logger.info("Update downloaded to %s", dest)
 

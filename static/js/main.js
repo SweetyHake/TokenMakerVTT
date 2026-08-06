@@ -287,6 +287,22 @@ function initWindowControls() {
     });
 }
 
+function initModelCheck() {
+    fetch('/model_status').then(function(r) { return r.json(); }).then(function(d) {
+        if (d && !d.exists) {
+            const banner = $('modelBanner');
+            if (banner) {
+                const pathEl = $('modelPath');
+                if (pathEl && d.path) pathEl.textContent = d.path;
+                banner.hidden = false;
+                const close = $('modelBannerClose');
+                if (close) close.onclick = () => { banner.hidden = true; };
+            }
+            toast('Файл модели model.onnx не найден', true);
+        }
+    }).catch(function() {});
+}
+
 async function init() {
     await AppConfig.load();
     initTheme();
@@ -299,6 +315,7 @@ async function init() {
     initPasteHandler();
     initSliderWheels();
     initTooltips();
+    initModelCheck();
     Remover.init();
     Converter.init();
     TokenEditor.init();
