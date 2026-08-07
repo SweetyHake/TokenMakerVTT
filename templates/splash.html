@@ -77,63 +77,9 @@ html, body {
     <div class="actions" id="actions" style="display:none"></div>
 </div>
 <script>
-var downloading = false;
-
 function id(name) { return document.getElementById(name); }
 
 function go() { window.location.href = '/'; }
-
-function startDownload() {
-    downloading = true;
-    id('bar').style.display = '';
-    id('barFill').style.width = '0%';
-    id('actions').style.display = 'none';
-    id('spinner').style.display = '';
-    id('status').innerHTML = 'Скачивание обновления... <span class="accent">0%</span>';
-    fetch('/start_update_download', { method: 'POST' }).catch(function(){});
-    pollDownload();
-}
-
-function pollDownload() {
-    fetch('/update_status').then(function(r) { return r.json(); }).then(function(d) {
-        if (d.download_error) {
-            id('spinner').style.display = 'none';
-            id('status').innerHTML =
-                '<span style="color:#ef4444">Ошибка: ' + d.download_error + '</span>';
-            id('actions').style.display = 'flex';
-            id('actions').innerHTML =
-                '<button class="btn" onclick="go()">Закрыть</button>';
-            return;
-        }
-        if (!d.download_done) {
-            var p = d.download_progress || 0;
-            id('status').innerHTML =
-                'Скачивание обновления... <span class="accent">' + p + '%</span>';
-            id('barFill').style.width = p + '%';
-            setTimeout(pollDownload, 300);
-            return;
-        }
-        id('spinner').style.display = 'none';
-        id('status').innerHTML =
-            'Обновление <span class="accent">' + (d.update_tag || '') + '</span> скачано!<br>Установить сейчас?';
-        id('actions').style.display = 'flex';
-        id('actions').innerHTML =
-            '<button class="btn btn-primary" onclick="applyRestart()">Установить</button>' +
-            '<button class="btn" onclick="go()">Позже</button>';
-    }).catch(function() {
-        setTimeout(pollDownload, 500);
-    });
-}
-
-function applyRestart() {
-    id('status').innerHTML = 'Установка обновления...';
-    id('actions').style.display = 'none';
-    id('spinner').style.display = '';
-    fetch('/apply_update', { method: 'POST' }).then(function() {
-        fetch('/api/window/destroy', { method: 'POST' }).catch(function(){});
-        setTimeout(function() { window.location.href = '/'; }, 2000);
-    });
-}
 
 var fakeSteps = [
     { p: 10, t: 100, m: 'Инициализация...' },
@@ -143,54 +89,30 @@ var fakeSteps = [
     { p: 100, t: 200, m: 'Запуск...' },
 ];
 var fi = 0;
-var EXTRA_RETRIES = 30;
 
-function pollUpdate(retries) {
-    if (retries === undefined) retries = EXTRA_RETRIES;
-
-    fetch('/update_status').then(function(r) { return r.json(); }).then(function(d) {
-        if (d.download_progress >= 0 && !d.download_done) {
-            pollDownload();
-            return;
-        }
-        if (d.update_available && d.update_url && !downloading) {
-            id('spinner').style.display = 'none';
-            id('status').innerHTML =
-                'Доступна версия <b class="accent">' + (d.update_tag || '') + '</b> (текущая: ' + d.current_version + ')';
-            id('actions').style.display = 'flex';
-            id('actions').innerHTML =
-                '<button class="btn btn-primary" onclick="startDownload()">Скачать</button>' +
-                '<button class="btn" onclick="go()">Пропустить</button>';
-            return;
-        }
-        if (fi < fakeSteps.length) {
-            var s = fakeSteps[fi++];
-            id('status').textContent = s.m;
-            id('barFill').style.width = s.p + '%';
-            setTimeout(function() { pollUpdate(retries); }, s.t);
-            return;
-        }
-        if (!d.update_checked && retries > 0) {
-            id('status').textContent = 'Проверка обновлений...';
-            setTimeout(function() { pollUpdate(retries - 1); }, 500);
-            return;
-        }
+function runSteps() {
+    if (fi < fakeSteps.length) {
+        var s = fakeSteps[fi++];
+        id('status').textContent = s.m;
+        id('barFill').style.width = s.p + '%';
+        setTimeout(runSteps, s.t);
+    } else {
         go();
+    }
+}
+
+// Ждём готовности сервера, затем — фейковая загрузка и переход в приложение
+function waitServer(retries) {
+    if (retries === undefined) retries = 40;
+    fetch('/version').then(function(r) { return r.json(); }).then(function() {
+        runSteps();
     }).catch(function() {
-        if (fi < fakeSteps.length) {
-            var s = fakeSteps[fi++];
-            id('status').textContent = s.m;
-            id('barFill').style.width = s.p + '%';
-            setTimeout(function() { pollUpdate(retries); }, s.t);
-        } else if (retries > 0) {
-            setTimeout(function() { pollUpdate(retries - 1); }, 500);
-        } else {
-            go();
-        }
+        if (retries > 0) setTimeout(function() { waitServer(retries - 1); }, 500);
+        else runSteps();
     });
 }
 
-setTimeout(function() { pollUpdate(); }, 200);
+waitServer();
 </script>
 </body>
 </html>

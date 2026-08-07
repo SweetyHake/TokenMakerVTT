@@ -1443,6 +1443,28 @@ input[type="file"] { display: none; }
 }
 .model-banner-close:hover { background: rgba(239,68,68,0.15); }
 
+/* UPDATE NOTIFICATION BANNER */
+.update-banner {
+    background: var(--accent-dim);
+    border-bottom: 1px solid var(--accent);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.update-banner:hover { background: rgba(99,102,241,0.18); }
+.update-banner-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--accent); }
+.update-banner .model-banner-close { color: var(--text-muted); }
+.update-banner .model-banner-close:hover { background: var(--bg-hover); }
+
+/* Indeterminate progress (download without Content-Length) */
+.progress-fill.indeterminate {
+    width: 40% !important;
+    animation: indeterminate-slide 1.2s ease-in-out infinite;
+}
+@keyframes indeterminate-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+}
+
 /* ================================================================
    ABOUT: MANUAL UPDATE
    ================================================================ */

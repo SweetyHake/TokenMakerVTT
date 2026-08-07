@@ -36,6 +36,7 @@ class _UpdateState:
         self.url = None
         self.tag = None
         self.download_progress = -1
+        self.download_active = False
         self.download_done = False
         self.download_error = None
         self.download_path = None
@@ -50,6 +51,7 @@ class _UpdateState:
                 "update_tag": self.tag,
                 "current_version": __version__,
                 "download_progress": self.download_progress,
+                "download_active": self.download_active,
                 "download_done": self.download_done,
                 "download_error": self.download_error,
                 "download_path": self.download_path,
@@ -75,8 +77,13 @@ class _UpdateState:
         with self.lock:
             self.download_kind = kind
 
+    def set_download_active(self, active):
+        with self.lock:
+            self.download_active = active
+
     def complete_download(self, error=None, path=None):
         with self.lock:
+            self.download_active = False
             self.download_done = True
             self.download_error = error
             self.download_path = path
@@ -204,6 +211,7 @@ def download_update():
 
         kind = "installer" if ("setup" in Path(clean).name.lower() or "installer" in Path(clean).name.lower()) else "bare"
         _state.set_download_kind(kind)
+        _state.set_download_active(True)
 
         upd_dir = _update_dir()
         for old in upd_dir.glob("TokenMaker_update*"):

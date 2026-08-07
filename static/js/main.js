@@ -347,6 +347,46 @@ function initModelSelector() {
 }
 
 let aboutUpdating = false;
+let aboutDownloading = false;
+
+function openAboutTab() {
+    document.querySelectorAll('.nav-btn[data-mode]').forEach(function(t) { t.classList.remove('active'); });
+    const btn = document.querySelector('.nav-btn[data-mode="about"]');
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+    const panel = $('aboutPanel');
+    if (panel) panel.classList.add('active');
+}
+
+function initUpdateNotify() {
+    const banner = $('updateNotifyBanner');
+    if (!banner) return;
+    const open = $('updateNotifyOpen');
+    const close = $('updateNotifyClose');
+    banner.addEventListener('click', function(e) {
+        if (e.target === close) return;
+        openAboutTab();
+    });
+    if (open) open.addEventListener('click', function(e) { e.stopPropagation(); openAboutTab(); });
+    if (close) close.addEventListener('click', function(e) { e.stopPropagation(); banner.hidden = true; });
+
+    // Фоновая проверка обновлений уже запущена сервером при старте — опрашиваем её
+    let tries = 0;
+    function poll() {
+        fetch('/update_status').then(function(r) { return r.json(); }).then(function(d) {
+            if (d && d.update_available && !d.download_done && d.update_tag) {
+                const v = $('updateNotifyVersion');
+                if (v) v.textContent = 'v' + d.update_tag;
+                banner.hidden = false;
+                return;
+            }
+            if (tries++ < 20) setTimeout(poll, 2000);
+        }).catch(function() {
+            if (tries++ < 20) setTimeout(poll, 2000);
+        });
+    }
+    setTimeout(poll, 3000);
+}
 
 function initAboutUpdate() {
     fetch('/version').then(r => r.json()).then(d => {
@@ -378,8 +418,23 @@ function aboutUpdateShowProgress(pct) {
     const pctEl = $('aboutUpdatePct');
     const actions = $('aboutUpdateActions');
     if (prog) prog.hidden = false;
-    if (bar) bar.style.width = pct + '%';
+    if (bar) { bar.classList.remove('indeterminate'); bar.style.width = pct + '%'; }
     if (pctEl) pctEl.textContent = pct + '%';
+    if (actions) actions.innerHTML = '';
+    aboutUpdateSetStatus('Скачивание обновления...');
+}
+
+function aboutUpdateShowIndeterminate() {
+    const box = $('aboutUpdateBox');
+    if (!box) return;
+    box.hidden = false;
+    const prog = $('aboutUpdateProgress');
+    const bar = $('aboutUpdateBarFill');
+    const pctEl = $('aboutUpdatePct');
+    const actions = $('aboutUpdateActions');
+    if (prog) prog.hidden = false;
+    if (bar) { bar.classList.add('indeterminate'); bar.style.width = '40%'; }
+    if (pctEl) pctEl.textContent = '...';
     if (actions) actions.innerHTML = '';
     aboutUpdateSetStatus('Скачивание обновления...');
 }
@@ -389,11 +444,14 @@ function hideAboutUpdate() {
     if (box) box.hidden = true;
     const prog = $('aboutUpdateProgress');
     if (prog) prog.hidden = true;
+    const bar = $('aboutUpdateBarFill');
+    if (bar) { bar.classList.remove('indeterminate'); bar.style.width = '0%'; }
     const actions = $('aboutUpdateActions');
     if (actions) actions.innerHTML = '';
     const btn = $('checkUpdatesBtn');
     if (btn) btn.disabled = false;
     aboutUpdating = false;
+    aboutDownloading = false;
 }
 
 function checkForUpdatesManual() {
@@ -420,8 +478,12 @@ function pollAboutUpdate(retries) {
                 '<button class="about-link" onclick="hideAboutUpdate()">Позже</button>';
             return;
         }
-        if (d.download_progress >= 0 && !d.download_error) {
-            aboutUpdateShowProgress(d.download_progress);
+        if (d.download_active && !d.download_error) {
+            if (d.download_progress >= 0) {
+                aboutUpdateShowProgress(d.download_progress);
+            } else {
+                aboutUpdateShowIndeterminate();
+            }
             setTimeout(() => pollAboutUpdate(retries), 1000);
             return;
         }
@@ -429,6 +491,7 @@ function pollAboutUpdate(retries) {
             aboutUpdateSetStatus('<span style="color:#ef4444">Ошибка скачивания: ' + d.download_error + '</span>');
             if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
             aboutUpdating = false;
+            aboutDownloading = false;
             if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
             return;
         }
@@ -439,6 +502,8 @@ function pollAboutUpdate(retries) {
                 '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
             aboutUpdating = false;
             if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+            // Если загрузка уже стартовала, но флаг ещё не доехал — продолжаем опрашивать
+            if (aboutDownloading) setTimeout(() => pollAboutUpdate(retries), 1000);
             return;
         }
         if (d.update_checked) {
@@ -468,6 +533,11 @@ function pollAboutUpdate(retries) {
 }
 
 function startAboutDownload() {
+    if (aboutDownloading) {
+        pollAboutUpdate(600);
+        return;
+    }
+    aboutDownloading = true;
     aboutUpdating = true;
     if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = true;
     const actions = $('aboutUpdateActions');
@@ -500,6 +570,7 @@ async function init() {
     initTooltips();
     initModelCheck();
     initModelSelector();
+    initUpdateNotify();
     initAboutUpdate();
     Remover.init();
     Converter.init();
