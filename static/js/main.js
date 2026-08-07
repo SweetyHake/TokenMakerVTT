@@ -293,14 +293,57 @@ function initModelCheck() {
             const banner = $('modelBanner');
             if (banner) {
                 const pathEl = $('modelPath');
-                if (pathEl && d.path) pathEl.textContent = d.path;
+                if (pathEl && d.models_dir) pathEl.textContent = d.models_dir;
                 banner.hidden = false;
                 const close = $('modelBannerClose');
                 if (close) close.onclick = () => { banner.hidden = true; };
             }
-            toast('Файл модели model.onnx не найден', true);
+            toast('Модель не найдена: положите файл .onnx в папку models', true);
         }
     }).catch(function() {});
+}
+
+function initModelSelector() {
+    const sel = $('modelSelect');
+    const dirLabel = $('modelsDirLabel');
+    if (!sel) return;
+    fetch('/models_list').then(function(r) { return r.json(); }).then(function(d) {
+        if (dirLabel && d.models_dir) dirLabel.textContent = d.models_dir;
+        sel.innerHTML = '';
+        if (!d.models || d.models.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Нет моделей (.onnx)';
+            sel.appendChild(opt);
+            sel.disabled = true;
+            return;
+        }
+        sel.disabled = false;
+        d.models.forEach(function(m) {
+            const opt = document.createElement('option');
+            opt.value = m.name;
+            opt.textContent = m.selected ? m.name + ' (текущая)' : m.name;
+            if (m.selected) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }).catch(function() {});
+    sel.onchange = function() {
+        if (!sel.value) return;
+        fetch('/select_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: sel.value })
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d && d.ok) {
+                toast('Модель "' + d.name + '" — будет применена к следующей обработке');
+            } else {
+                toast('Ошибка: ' + (d.error || 'не удалось выбрать модель'), true);
+            }
+            initModelSelector();
+        }).catch(function() {
+            toast('Ошибка выбора модели', true);
+        });
+    };
 }
 
 let aboutUpdating = false;
@@ -456,6 +499,7 @@ async function init() {
     initSliderWheels();
     initTooltips();
     initModelCheck();
+    initModelSelector();
     initAboutUpdate();
     Remover.init();
     Converter.init();

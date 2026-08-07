@@ -37,10 +37,53 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
 else:
     BASE_DIR = Path(os.environ.get('TOKENMAKER_DIR', Path(__file__).parent))
-ONNX_PATH = BASE_DIR / "model.onnx"
+MODELS_DIR = BASE_DIR / "models"
 RING_DIR = BASE_DIR / "token_rings"
 MASK_PATH = BASE_DIR / "mask.png"
 PRESET_DIR = BASE_DIR
+
+
+def _migrate_legacy_model():
+    """Если model.onnx лежит в папке приложения — перемещаем в models/ (разово)."""
+    legacy = BASE_DIR / "model.onnx"
+    if not legacy.exists():
+        return
+    try:
+        MODELS_DIR.mkdir(exist_ok=True)
+        dest = MODELS_DIR / "model.onnx"
+        if not dest.exists():
+            os.replace(str(legacy), str(dest))
+            print(f" Модель перемещена: model.onnx -> {MODELS_DIR.name}/")
+        else:
+            legacy.unlink(missing_ok=True)
+    except Exception as e:
+        print(f" Не удалось переместить модель: {e}")
+
+
+def get_selected_model_path():
+    """Путь к выбранной модели: config selected_model -> первая .onnx в models/."""
+    try:
+        cfg_path = BASE_DIR / 'config.json'
+        if cfg_path.exists():
+            cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
+            sel = cfg.get('selected_model')
+            if sel:
+                p = MODELS_DIR / Path(str(sel)).name
+                if p.exists():
+                    return p
+    except Exception:
+        pass
+    try:
+        onnx_files = sorted(MODELS_DIR.glob('*.onnx'))
+        if onnx_files:
+            return onnx_files[0]
+    except Exception:
+        pass
+    return MODELS_DIR / "model.onnx"
+
+
+_migrate_legacy_model()
+ONNX_PATH = get_selected_model_path()
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'}
 MAX_IMAGE_DIMENSION = 8192
@@ -315,15 +358,16 @@ except Exception:
 def load_session():
     global SESSION, _PROVIDERS, _PROVIDER_OPTIONS, DEVICE_NAME
     if SESSION is None:
-        if not ONNX_PATH.exists():
-            raise FileNotFoundError(f"Файл не найден: {ONNX_PATH}")
+        model_path = get_selected_model_path()
+        if not model_path.exists():
+            raise FileNotFoundError(f"Модель не найдена: {model_path}")
         if not hasattr(ort, 'InferenceSession'):
             raise RuntimeError(
                 "onnxruntime повреждён или установлен не полностью. "
                 "Выполните: pip install --force-reinstall onnxruntime-directml"
             )
         providers = _PROVIDERS
-        print(f"Загрузка на {DEVICE_NAME}...")
+        print(f"Модель: {model_path.name} | Загрузка на {DEVICE_NAME}...")
 
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
@@ -336,7 +380,7 @@ def load_session():
 
         try:
             SESSION = ort.InferenceSession(
-                str(ONNX_PATH),
+                str(model_path),
                 sess_options=opts,
                 providers=providers,
                 provider_options=_PROVIDER_OPTIONS
@@ -349,7 +393,7 @@ def load_session():
                     print(f"  Адаптер #{_PROVIDER_OPTIONS[0].get('device_id')} не запустился ({e})")
                     print("  Пробуем дефолтный адаптер...")
                     SESSION = ort.InferenceSession(
-                        str(ONNX_PATH),
+                        str(model_path),
                         sess_options=opts,
                         providers=providers,
                         provider_options=None
@@ -365,7 +409,7 @@ def load_session():
                 print("  Откат на BASIC...")
                 try:
                     SESSION = ort.InferenceSession(
-                        str(ONNX_PATH),
+                        str(model_path),
                         sess_options=opts,
                         providers=providers,
                         provider_options=_PROVIDER_OPTIONS
@@ -376,7 +420,7 @@ def load_session():
                         print("  Откат на CPU...")
                         DEVICE_NAME = 'CPU (fallback)'
                     SESSION = ort.InferenceSession(
-                        str(ONNX_PATH),
+                        str(model_path),
                         sess_options=opts,
                         providers=['CPUExecutionProvider']
                     )
@@ -444,14 +488,15 @@ def cli_tune_gpu():
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
             opts.intra_op_num_threads = 2
+            model_path = str(get_selected_model_path())
             if device_id is None:
                 sess = ort.InferenceSession(
-                    str(ONNX_PATH), sess_options=opts,
+                    model_path, sess_options=opts,
                     providers=['DmlExecutionProvider', 'CPUExecutionProvider']
                 )
             else:
                 sess = ort.InferenceSession(
-                    str(ONNX_PATH), sess_options=opts,
+                    model_path, sess_options=opts,
                     providers=['DmlExecutionProvider', 'CPUExecutionProvider'],
                     provider_options=[{'device_id': device_id}, {}]
                 )
@@ -899,12 +944,63 @@ def version_info():
 
 @app.route('/model_status')
 def model_status():
-    exists = ONNX_PATH.exists()
+    p = get_selected_model_path()
+    exists = p.exists()
     return jsonify({
         'exists': exists,
-        'size': ONNX_PATH.stat().st_size if exists else 0,
-        'path': str(ONNX_PATH)
+        'size': p.stat().st_size if exists else 0,
+        'path': str(p),
+        'models_dir': str(MODELS_DIR)
     })
+
+
+@app.route('/models_list')
+def models_list():
+    try:
+        MODELS_DIR.mkdir(exist_ok=True)
+    except Exception:
+        pass
+    selected = get_selected_model_path()
+    models = []
+    for f in sorted(MODELS_DIR.glob('*.onnx')):
+        if not f.is_file():
+            continue
+        try:
+            size = f.stat().st_size
+        except OSError:
+            size = 0
+        models.append({
+            'name': f.name,
+            'size': size,
+            'selected': f.resolve() == selected.resolve(),
+        })
+    return jsonify({
+        'models': models,
+        'models_dir': str(MODELS_DIR),
+        'selected': selected.name if selected.exists() else None,
+    })
+
+
+@app.route('/select_model', methods=['POST'])
+def select_model():
+    global SESSION
+    data = request.get_json(force=True, silent=True) or {}
+    filename = str(data.get('name', ''))
+    p = MODELS_DIR / Path(filename).name
+    if p.suffix.lower() != '.onnx' or not p.exists() or not p.is_file():
+        return jsonify({'error': 'Модель не найдена'}), 404
+
+    cfg_path = BASE_DIR / 'config.json'
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
+        cfg['selected_model'] = p.name
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception as e:
+        return jsonify({'error': f'Не удалось сохранить настройку: {e}'}), 500
+
+    # Сбрасываем сессию — следующая обработка загрузит новую модель
+    SESSION = None
+    return jsonify({'ok': True, 'name': p.name})
 
 @app.route('/icon')
 def app_icon():

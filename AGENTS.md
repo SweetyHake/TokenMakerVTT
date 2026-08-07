@@ -27,7 +27,7 @@ Installer output: `dist/installer/TokenMaker_Setup_v*.exe`
 
 ВНИМАНИЕ: автообновление (`updater.py:_find_exe_asset`) пропускает установщики (имена с "setup"/"installer") — их нельзя копировать поверх exe приложения. Пока в релизе один ассет (установщик), в приложении показывается «доступна новая версия» со ссылкой на GitHub, автоскачивание недоступно. Если вернётся автообновление — нужен ассет с именем `TokenMaker.exe` (без "setup"), либо доработка апдейтера под установщик (`/SILENT`).
 
-Model file `model.onnx` is NOT bundled — user places it manually next to the exe.
+Model files (`*.onnx`) are NOT bundled — user places them into the `models/` folder next to the exe and picks one in Settings (только `.onnx`).
 
 ### Inno Setup
 
@@ -58,13 +58,13 @@ No `requirements.txt` — the batch file is the source of truth.
 - `version.py:GITHUB_REPO` — set to `"username/TokenMakerVTT"` before building
 - On startup, `updater.py` checks GitHub Releases for newer version
 - If newer version found, splash screen shows download button
-- `model.onnx` is NOT auto-downloaded — the user places it manually next to the exe (see "External assets")
+- `model.onnx` is NOT auto-downloaded — the user places it into `models/` and selects it in Settings (see "External assets")
 
 ## Architecture
 
 - **Desktop shell**: pywebview (edgechromium) → `app.py:138-148`
 - **Web server**: Flask on `127.0.0.1:7878` → `server.py`
-- **AI inference**: ONNX Runtime with `model.onnx` (BiRefNet **или** RMBG-2.0/IS-Net — обе поддерживаются). `get_providers()` in `server.py` detects physical GPUs via WMI (virtual/Parsec/RDP adapters are filtered), then picks CUDA (NVIDIA) → ROCm → DirectML → CPU. Runtime fallback to CPU if the GPU provider fails to load.
+- **AI inference**: ONNX Runtime with a model from `models/` folder (BiRefNet **или** RMBG-2.0/IS-Net — обе поддерживаются), выбор модели в настройках (`/models_list`, `/select_model`). `get_providers()` in `server.py` detects physical GPUs via WMI (virtual/Parsec/RDP adapters are filtered), then picks CUDA (NVIDIA) → ROCm → DirectML → CPU. Runtime fallback to CPU if the GPU provider fails to load.
 - **Frontend**: Vanilla JS, global `state` object mutated directly by all modules
 - **Canvas**: internal 2048×2048 px, logical coords in 1024 px space (scale factor = 2)
 
@@ -72,7 +72,7 @@ No `requirements.txt` — the batch file is the source of truth.
 
 - **Duplicate route functions**: Several `@app.route` functions have orphaned duplicates below them as plain `def` (no decorator) — these are dead code but harmless. Example: `def index()` at line 333, `def process()` at line 469, `def preset()` at line 396.
 - Every `@app.route` must be declared exactly once with the decorator.
-- Model file `model.onnx` must be in `BASE_DIR` (same dir as `server.py`). It's in `.gitignore`.
+- Models live in `BASE_DIR/models/` (`get_selected_model_path()`: config `selected_model` → первый `*.onnx`). При первом запуске `model.onnx` из `BASE_DIR` автоматически перемещается в `models/`.
 
 ## JS load order (strict, from `index.html` lines 713-725)
 
@@ -146,7 +146,7 @@ Stored in `config.json`, managed by `AppConfig` (JS) with a rebindable UI in `ho
 
 | Symptom | Likely cause |
 |---------|-------------|
-| /process returns 500 | `model.onnx` missing |
+| /process returns 500 | Модель missing в `models/` (баннер + выбор в настройках) |
 | Rings don't load | Syntax error in `tokenPresets.js` prevents parsing |
 | Image doesn't render | `state.userImage` or `state.maskCanvas` is null |
 | ObjectURL leak | `urlManager` bypassed |
@@ -155,7 +155,7 @@ Stored in `config.json`, managed by `AppConfig` (JS) with a rebindable UI in `ho
 
 ## External assets
 
-- `model.onnx` — BiRefNet или RMBG-2.0/IS-Net, кладётся вручную рядом с `server.py` (не в репозитории, в `.gitignore`)
+- `model.onnx` — BiRefNet или RMBG-2.0/IS-Net, кладётся вручную в `models/` (не в репозитории, в `.gitignore`)
 - `token_rings/` — folder with ring PNG/WebP files (optional)
 - `presets/` — folder with preset mask images (optional)
 - Images loaded from clipboard/files are never stored on disk

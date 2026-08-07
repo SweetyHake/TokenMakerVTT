@@ -43,8 +43,8 @@
     <div class="model-banner" id="modelBanner" hidden>
         <svg viewBox="0 0 24 24" class="model-banner-icon"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.09 14A2 2 0 0 0 3.91 21h16.18a2 2 0 0 0 1.7-3.14l-8.08-14a2 2 0 0 0-3.42 0z"/></svg>
         <span class="model-banner-text">
-            Файл модели <b>model.onnx</b> не найден — удаление фона недоступно.
-            Положите файл рядом с приложением: <span class="model-banner-path" id="modelPath"></span>
+            Модель не найдена — удаление фона недоступно.
+            Положите файл (.onnx) в папку models: <span class="model-banner-path" id="modelPath"></span>
         </span>
         <button class="model-banner-close" id="modelBannerClose" title="Скрыть">&times;</button>
     </div>
@@ -420,6 +420,12 @@
                             <span>Светлый</span>
                         </label>
                     </div>
+                </div>
+
+                <div class="settings-group">
+                    <span class="theme-selector-label">Модель (ONNX)</span>
+                    <div class="field-row"><span class="field-row-label">Модель:</span><select class="compact-select" id="modelSelect" disabled><option>Загрузка...</option></select></div>
+                    <div class="field-row"><span class="field-row-label">Папка:</span><span id="modelsDirLabel" style="font-size:10px;color:var(--text-muted);word-break:break-all;"></span></div>
                 </div>
 
                 <div class="settings-group">

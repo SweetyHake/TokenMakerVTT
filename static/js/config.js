@@ -80,6 +80,7 @@ const AppConfig = {
                 quality: 512,
                 scaleMode: 'auto'
             },
+            selected_model: null,
             panelWidths: {
                 left: 320,
                 right: 320
@@ -101,6 +102,7 @@ const AppConfig = {
                 example: { ...def.example, ...(saved.example || {}) },
                 remover: { ...def.remover, ...(saved.remover || {}) },
                 saveSettings: { ...def.saveSettings, ...(saved.saveSettings || {}) },
+                selected_model: saved.selected_model || null,
                 panelWidths: { ...def.panelWidths, ...(saved.panelWidths || {}) }
             };
         } catch {

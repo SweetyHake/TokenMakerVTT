@@ -8,3 +8,5 @@ app.pid
 *.spec
 *.pyc
 blaze_face_short_range.tflite
+models/
+
