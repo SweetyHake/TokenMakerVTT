@@ -1,4 +1,5 @@
 import ctypes
+import os
 import sys
 
 REG_ENTRIES = [
@@ -92,6 +93,34 @@ def _set_taskbar_identity():
         pass
 
 
+def _setup_webview2_gpu():
+    """WebView2 (Edge) на гибридных ноутбуках может выбрать встроенную видеокарту
+    или уйти в программный рендеринг (swiftshader) — канвас 6144² тогда тормозит.
+    Принудительно включаем аппаратное ускорение через официальные аргументы WebView2
+    и пишем GpuPreference=2 (дискретная карта) для процесса приложения в реестре.
+
+    Если лаги остались: Параметры Windows → Система → Дисплей → Графика →
+    добавить msedgewebview2.exe (C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\
+    Application\\*\\msedgewebview2.exe) → «Высокая производительность»."""
+    try:
+        args = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
+        for sw in ('--use-angle=d3d11', '--enable-gpu-rasterization'):
+            if sw not in args:
+                args = (args + ' ' + sw).strip()
+        os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = args
+    except Exception:
+        pass
+    try:
+        import winreg
+        exe = os.path.basename(sys.executable)
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+                               r'Software\Microsoft\DirectX\UserGpuPreferences')
+        winreg.SetValueEx(key, exe, 0, winreg.REG_SZ, 'GpuPreference=2;')
+        winreg.CloseKey(key)
+    except Exception:
+        pass
+
+
 def _nuclear_exit():
     if PID_FILE and PID_FILE.exists():
         try:
@@ -115,6 +144,7 @@ def main():
     global PID_FILE
 
     _set_taskbar_identity()
+    _setup_webview2_gpu()
 
     if '--tune-gpu' in sys.argv:
         from server import cli_tune_gpu
