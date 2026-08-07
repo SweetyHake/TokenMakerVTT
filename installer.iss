@@ -46,11 +46,19 @@ begin
   Result := Exec('cmd.exe', '/C python --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
+function IsSilentUpdate: Boolean;
+var
+  CmdTail: String;
+begin
+  CmdTail := Uppercase(GetCmdTail);
+  Result := (Pos('/SILENT', CmdTail) > 0) or (Pos('/VERYSILENT', CmdTail) > 0);
+end;
+
 [Run]
 ; При тихой установке (/SILENT — автообновление из приложения) pip-шаги пропускаются:
 ; пакеты не нужны замороженному exe, а тянуть их на каждом апдейте долго.
-Filename: "{cmd}"; Parameters: "/C python -m pip install numpy Pillow flask pywebview psutil --quiet"; StatusMsg: "Installing Python packages..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilent()
-Filename: "{cmd}"; Parameters: "/C python -m pip install onnxruntime-directml --quiet || python -m pip install onnxruntime --quiet"; StatusMsg: "Installing AI backend..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilent()
+Filename: "{cmd}"; Parameters: "/C python -m pip install numpy Pillow flask pywebview psutil --quiet"; StatusMsg: "Installing Python packages..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilentUpdate
+Filename: "{cmd}"; Parameters: "/C python -m pip install onnxruntime-directml --quiet || python -m pip install onnxruntime --quiet"; StatusMsg: "Installing AI backend..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilentUpdate
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 
