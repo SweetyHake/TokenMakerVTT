@@ -43,6 +43,10 @@ PRESET_DIR = BASE_DIR
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'}
 MAX_IMAGE_DIMENSION = 8192
+# Рабочее разрешение для фоновой обработки: маска, композитинг и кодирование
+# держат по несколько полноразмерных буферов — на 8K пик памяти ~6 ГБ.
+# Токены и вырезатель работают с 4096 без потери качества.
+MAX_PROCESS_DIM = 4096
 
 SESSION = None
 DEVICE_NAME = "Определение..."
@@ -59,6 +63,18 @@ def validate_image(image):
         ratio = min(MAX_IMAGE_DIMENSION / image.width, MAX_IMAGE_DIMENSION / image.height)
         new_size = (int(image.width * ratio), int(image.height * ratio))
         image = image.resize(new_size, Image.LANCZOS)
+    return image
+
+
+def cap_process_size(image):
+    """Уменьшает рабочее изображение до MAX_PROCESS_DIM (BILINEAR — быстро).
+    Возвращает новое изображение; исходное освобождается по refcount."""
+    import gc
+    w, h = image.size
+    if max(w, h) > MAX_PROCESS_DIM:
+        ratio = MAX_PROCESS_DIM / max(w, h)
+        image = image.resize((max(1, int(w * ratio)), max(1, int(h * ratio))), Image.BILINEAR)
+        gc.collect()
     return image
 
 
@@ -523,6 +539,7 @@ def remove_background(image, edge_blur=1):
         return proc.memory_info().rss / 1024 / 1024
 
     session = load_session()
+    image = cap_process_size(image)
     print(f"  [RAM] старт обработки: {mem():.0f} МБ | размер входа: {image.size}")
 
     if image.mode != 'RGB':
@@ -576,13 +593,8 @@ def remove_background(image, edge_blur=1):
 
     mask_pil = refine_mask(mask_pil, edge_blur, target_size=image.size)
 
-    result = image.convert('RGBA')
-    rgba_np = np.array(result)
-    alpha_np = np.array(mask_pil)
-
     # White-penalty считается на уменьшенной копии (1024), поправка затем масштабируется.
-    # На 8K-исходнике это экономит ~1 ГБ транзитных float32-массивов.
-    small = image.convert('RGB').resize((1024, 1024), Image.BILINEAR)
+    small = image.resize((1024, 1024), Image.BILINEAR)
     small_arr = np.array(small, dtype=np.float32)
     del small
     wp = (small_arr[:, :, 0] * 0.299 + small_arr[:, :, 1] * 0.587 + small_arr[:, :, 2] * 0.114)
@@ -590,16 +602,32 @@ def remove_background(image, edge_blur=1):
     suppress = (wp > 220) & (alpha_small < 180)
     corr = np.zeros_like(wp)
     corr[suppress] = np.minimum((wp[suppress] - 220) * 3.5, 255.0)
-    corr_img = Image.fromarray(corr.astype(np.uint8)).resize(result.size, Image.BILINEAR)
+    corr_img = Image.fromarray(corr.astype(np.uint8)).resize(image.size, Image.BILINEAR)
     del small_arr, wp, alpha_small, corr
+    corr_u8 = np.array(corr_img)
+    del corr_img
+    gc.collect()
+
+    # Композитинг: одна RGBA-копия исходника + uint8-маска; арифметика — in-place.
+    result = image.convert('RGBA')
+    rgba_np = np.array(result)
+    del result
+    alpha_np = np.array(mask_pil)
+    del mask_pil
+    del image
+    gc.collect()
 
     alpha16 = alpha_np.astype(np.int16)
-    alpha16 -= np.array(corr_img).astype(np.int16)
+    del alpha_np
+    alpha16 -= corr_u8
+    del corr_u8
     np.clip(alpha16, 0, 255, out=alpha16)
     rgba_np[:, :, 3] = alpha16.astype(np.uint8)
+    del alpha16
+    gc.collect()
 
     result = Image.fromarray(rgba_np, mode='RGBA')
-    del rgba_np, alpha_np, mask_pil, alpha16, corr_img
+    del rgba_np
     gc.collect()
 
     print(f"  [RAM] финал: {mem():.0f} МБ")
@@ -1124,6 +1152,9 @@ def process():
         image = Image.open(file.stream)
         image.load()
         image = validate_image(image)
+        # Даунскейл до MAX_PROCESS_DIM сразу после декода — освобождает оригинал
+        # до модели/композитинга (иначе 8K держит ~200-270 МБ лишних).
+        image = cap_process_size(image)
         result = remove_background(image, edge_blur)
         del image
         gc.collect()
@@ -1239,7 +1270,9 @@ def create_token():
     try:
         image = Image.open(file.stream)
         image.load()
-        image = validate_image(image).convert('RGBA')
+        image = validate_image(image)
+        image = cap_process_size(image)
+        image = image.convert('RGBA')
         result = create_foundry_token(
             image,
             canvas_size=canvas_size,
