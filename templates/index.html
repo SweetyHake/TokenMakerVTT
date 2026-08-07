@@ -15,9 +15,12 @@
 </div>
 <div class="app-layout">
     <div class="title-bar" id="titleBar">
-        <div class="tb-brand">
+        <div class="tb-brand" id="tbBrand" data-tooltip="О программе">
             <img src="/icon" class="tb-icon" alt="Logo">
             <span class="tb-title">Token Maker <span class="tb-subtitle">v<span id="titleVersion"></span></span></span>
+            <button class="tb-update-badge" id="tbUpdateBadge" hidden data-tooltip="Доступно обновление">
+                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            </button>
             <div class="device-dot" id="deviceBadge" data-tooltip="Загрузка..."></div>
         </div>
         <div class="tb-nav">
@@ -459,7 +462,7 @@
         <div class="about-layout">
             <div class="about-header">
                 <div class="about-logo">
-                    <img src="/icon" alt="Token Maker">
+                    <img src="/logo" alt="Token Maker">
                 </div>
                 <div>
                     <div class="about-title">Token Maker</div>
@@ -493,6 +496,10 @@
                     <span class="about-update-pct" id="aboutUpdatePct">0%</span>
                 </div>
                 <div class="about-update-actions" id="aboutUpdateActions"></div>
+            </div>
+            <div class="about-footer-text">
+                © 2026 SweetyHake ·
+                <a href="https://github.com/{{ github_repo }}" target="_blank" class="about-footer-link">github.com/{{ github_repo }}</a>
             </div>
         </div>
     </div>

@@ -360,6 +360,7 @@ function openAboutTab() {
 
 function initUpdateNotify() {
     const banner = $('updateNotifyBanner');
+    const badge = $('tbUpdateBadge');
     if (!banner) return;
     const open = $('updateNotifyOpen');
     const close = $('updateNotifyClose');
@@ -378,6 +379,10 @@ function initUpdateNotify() {
                 const v = $('updateNotifyVersion');
                 if (v) v.textContent = 'v' + d.update_tag;
                 banner.hidden = false;
+                if (badge) {
+                    badge.hidden = false;
+                    badge.dataset.tooltip = 'Доступно обновление v' + d.update_tag;
+                }
                 return;
             }
             if (tries++ < 20) setTimeout(poll, 2000);
@@ -402,6 +407,17 @@ function initAboutUpdate() {
 
     const btn = $('checkUpdatesBtn');
     if (btn) btn.onclick = () => checkForUpdatesManual();
+
+    // Клик по версии слева сверху открывает раздел «О программе»
+    const brand = $('tbBrand');
+    if (brand) {
+        brand.addEventListener('click', e => {
+            if (e.target.closest('.tb-update-badge, .wc-btn, .nav-btn')) return;
+            openAboutTab();
+        });
+    }
+    const badge = $('tbUpdateBadge');
+    if (badge) badge.addEventListener('click', () => openAboutTab());
 }
 
 function aboutUpdateSetStatus(html) {

@@ -1007,6 +1007,14 @@ def app_icon():
     return send_file(BASE_DIR / 'icon.ico', mimetype='image/x-icon')
 
 
+@app.route('/logo')
+def app_logo():
+    logo = BASE_DIR / 'logo.png'
+    if logo.exists():
+        return send_file(logo, mimetype='image/png')
+    return send_file(BASE_DIR / 'icon.ico', mimetype='image/x-icon')
+
+
 @app.route('/splash')
 def splash():
     return render_template('splash.html')
