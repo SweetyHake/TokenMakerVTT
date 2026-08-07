@@ -300,6 +300,8 @@ const TokenEditor = {
 
                 TokenCanvas._compositedImageDirty = true;
                 TokenCanvas._ccDirty = true;
+                TokenCanvas._shadowDirty = true;
+                TokenCanvas._zonesDirty = true;
                 TokenCanvas._imageBrushCache = null;
 
                 btn.disabled = false;
@@ -314,7 +316,11 @@ const TokenEditor = {
 
             newImage.onerror = () => {
                 urlManager.revoke('userImage');
-                throw new Error('Не удалось загрузить результат');
+                state.userImage = state.userImageOriginal;
+                btn.disabled = false;
+                btn.classList.remove('active');
+                this.updateRemoveBgButton();
+                toast('Не удалось загрузить результат', true);
             };
 
             newImage.src = url;
@@ -777,7 +783,7 @@ const TokenEditor = {
         if (e.ctrlKey && code === hk.undo && !e.shiftKey) { e.preventDefault(); TokenHistory.undo(); return; }
         if ((e.ctrlKey && code === hk.redo) || (e.ctrlKey && e.shiftKey && code === hk.undo)) { e.preventDefault(); TokenHistory.redo(); return; }
         if (!isInput && state.userImage && ROTATE_KEYS.includes(code) && !e.ctrlKey) { e.preventDefault(); this.handleRotateKey(code); return; }
-        if (!isInput && state.userImage && MOVE_KEYS.includes(code)) { e.preventDefault(); this.handleMoveKey(code); }
+        if (!isInput && state.userImage && MOVE_KEYS.includes(code) && !e.ctrlKey) { e.preventDefault(); this.handleMoveKey(code); return; }
         if (!isInput && e.ctrlKey && code === 'ArrowLeft' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(-1); }
         if (!isInput && e.ctrlKey && code === 'ArrowRight' && state.imageFileList.length > 1) { e.preventDefault(); this.navigateTo(1); }
     },

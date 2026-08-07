@@ -33,6 +33,27 @@ except ImportError:
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
+
+@app.before_request
+def _guard_localhost_only():
+    """Защита от CSRF/DNS-rebinding: API доступен только с localhost.
+    Внешние страницы (Origin != localhost) и чужие Host отклоняются."""
+    try:
+        host = (request.host or '').lower()
+        host_name = host.split(':')[0] if ':' in host else host
+        if host_name not in ('127.0.0.1', 'localhost', '[::1]'):
+            return jsonify({'error': 'Forbidden'}), 403
+        origin = request.headers.get('Origin', '')
+        if origin:
+            from urllib.parse import urlparse
+            oh = urlparse(origin).netloc.lower()
+            oh_name = oh.split(':')[0] if ':' in oh else oh
+            if oh_name not in ('127.0.0.1', 'localhost', '[::1]', ''):
+                return jsonify({'error': 'Forbidden'}), 403
+    except Exception:
+        pass
+    return None
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
 else:
@@ -93,9 +114,24 @@ MAX_IMAGE_DIMENSION = 8192
 MAX_PROCESS_DIM = 4096
 
 SESSION = None
+SESSION_LOCK = threading.Lock()
+CONFIG_LOCK = threading.Lock()
 DEVICE_NAME = "Определение..."
 _PROVIDERS = None
 _PROVIDER_OPTIONS = None
+
+
+def _load_config():
+    try:
+        cfg_path = BASE_DIR / 'config.json'
+        return json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
+    except Exception:
+        return {}
+
+
+def _save_config(cfg):
+    with CONFIG_LOCK:
+        (BASE_DIR / 'config.json').write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def allowed_file(filename):
@@ -358,90 +394,95 @@ except Exception:
 def load_session():
     global SESSION, _PROVIDERS, _PROVIDER_OPTIONS, DEVICE_NAME
     if SESSION is None:
-        model_path = get_selected_model_path()
-        if not model_path.exists():
-            raise FileNotFoundError(f"Модель не найдена: {model_path}")
-        if not hasattr(ort, 'InferenceSession'):
-            raise RuntimeError(
-                "onnxruntime повреждён или установлен не полностью. "
-                "Выполните: pip install --force-reinstall onnxruntime-directml"
-            )
-        providers = _PROVIDERS
-        print(f"Модель: {model_path.name} | Загрузка на {DEVICE_NAME}...")
+        # Создание сессии и прогрев — под блокировкой: параллельные DML-сессии
+        # ломают инференс (ExecuteKernel 80070057)
+        with SESSION_LOCK:
+            if SESSION is not None:
+                return SESSION
+            model_path = get_selected_model_path()
+            if not model_path.exists():
+                raise FileNotFoundError(f"Модель не найдена: {model_path}")
+            if not hasattr(ort, 'InferenceSession'):
+                raise RuntimeError(
+                    "onnxruntime повреждён или установлен не полностью. "
+                    "Выполните: pip install --force-reinstall onnxruntime-directml"
+                )
+            providers = _PROVIDERS
+            print(f"Модель: {model_path.name} | Загрузка на {DEVICE_NAME}...")
 
-        opts = ort.SessionOptions()
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        opts.inter_op_num_threads = 1
-        opts.intra_op_num_threads = max(1, os.cpu_count() // 2)
-        opts.enable_mem_pattern = True
-        opts.enable_mem_reuse = True
-        opts.add_session_config_entry("session.disable_prepacking", "0")
+            opts = ort.SessionOptions()
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            opts.inter_op_num_threads = 1
+            opts.intra_op_num_threads = max(1, os.cpu_count() // 2)
+            opts.enable_mem_pattern = True
+            opts.enable_mem_reuse = True
+            opts.add_session_config_entry("session.disable_prepacking", "0")
 
-        try:
-            SESSION = ort.InferenceSession(
-                str(model_path),
-                sess_options=opts,
-                providers=providers,
-                provider_options=_PROVIDER_OPTIONS
-            )
-        except Exception as e:
-            # Авто-выбранный device_id мог не подойти (DML) — пробуем дефолтный адаптер,
-            # и только потом откатываемся на CPU.
-            if _PROVIDER_OPTIONS and providers != ['CPUExecutionProvider']:
-                try:
-                    print(f"  Адаптер #{_PROVIDER_OPTIONS[0].get('device_id')} не запустился ({e})")
-                    print("  Пробуем дефолтный адаптер...")
-                    SESSION = ort.InferenceSession(
-                        str(model_path),
-                        sess_options=opts,
-                        providers=providers,
-                        provider_options=None
-                    )
-                    _PROVIDER_OPTIONS = None
-                    print("  Дефолтный адаптер работает.")
-                except Exception:
-                    SESSION = None
+            try:
+                SESSION = ort.InferenceSession(
+                    str(model_path),
+                    sess_options=opts,
+                    providers=providers,
+                    provider_options=_PROVIDER_OPTIONS
+                )
+            except Exception as e:
+                # Авто-выбранный device_id мог не подойти (DML) — пробуем дефолтный адаптер,
+                # и только потом откатываемся на CPU.
+                if _PROVIDER_OPTIONS and providers != ['CPUExecutionProvider']:
+                    try:
+                        print(f"  Адаптер #{_PROVIDER_OPTIONS[0].get('device_id')} не запустился ({e})")
+                        print("  Пробуем дефолтный адаптер...")
+                        SESSION = ort.InferenceSession(
+                            str(model_path),
+                            sess_options=opts,
+                            providers=providers,
+                            provider_options=None
+                        )
+                        _PROVIDER_OPTIONS = None
+                        print("  Дефолтный адаптер работает.")
+                    except Exception:
+                        SESSION = None
 
-            if SESSION is None:
-                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-                print(f"  Оптимизация EXTENDED не загрузилась ({e})")
-                print("  Откат на BASIC...")
-                try:
-                    SESSION = ort.InferenceSession(
-                        str(model_path),
-                        sess_options=opts,
-                        providers=providers,
-                        provider_options=_PROVIDER_OPTIONS
-                    )
-                except Exception:
-                    if providers != ['CPUExecutionProvider']:
-                        print(f"  GPU-провайдер не запустился ({e})")
-                        print("  Откат на CPU...")
-                        DEVICE_NAME = 'CPU (fallback)'
-                    SESSION = ort.InferenceSession(
-                        str(model_path),
-                        sess_options=opts,
-                        providers=['CPUExecutionProvider']
-                    )
+                if SESSION is None:
+                    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+                    print(f"  Оптимизация EXTENDED не загрузилась ({e})")
+                    print("  Откат на BASIC...")
+                    try:
+                        SESSION = ort.InferenceSession(
+                            str(model_path),
+                            sess_options=opts,
+                            providers=providers,
+                            provider_options=_PROVIDER_OPTIONS
+                        )
+                    except Exception:
+                        if providers != ['CPUExecutionProvider']:
+                            print(f"  GPU-провайдер не запустился ({e})")
+                            print("  Откат на CPU...")
+                            DEVICE_NAME = 'CPU (fallback)'
+                        SESSION = ort.InferenceSession(
+                            str(model_path),
+                            sess_options=opts,
+                            providers=['CPUExecutionProvider']
+                        )
 
-        print(f" Прогрев модели...")
-        warmup_time = None
-        try:
-            dummy = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
-            input_name = SESSION.get_inputs()[0].name
-            t0 = time.time()
-            SESSION.run(None, {input_name: dummy})
-            warmup_time = time.time() - t0
-            del dummy
-            import gc
-            gc.collect()
-            print(f" Прогрев завершён ({warmup_time:.2f} с).")
-        except Exception as e:
-            print(f" Прогрев не удался: {e}")
+            print(f" Прогрев модели...")
+            warmup_time = None
+            try:
+                dummy = np.zeros((1, 3, 1024, 1024), dtype=np.float32)
+                input_name = SESSION.get_inputs()[0].name
+                t0 = time.time()
+                SESSION.run(None, {input_name: dummy})
+                warmup_time = time.time() - t0
+                del dummy
+                import gc
+                gc.collect()
+                print(f" Прогрев завершён ({warmup_time:.2f} с).")
+            except Exception as e:
+                print(f" Прогрев не удался: {e}")
 
-        print(f" Готово!\n")
-        _spawn_tune_child()
+            print(f" Готово!\n")
+            _spawn_tune_child()
     return SESSION
 
 
@@ -449,7 +490,7 @@ def _spawn_tune_child():
     """Запускает подбор адаптера DirectML в ОТДЕЛЬНОМ процессе (--tune-gpu).
     Параллельные DML-сессии в одном процессе ломают основной инференс
     (баг onnxruntime-directml: ExecuteKernel 80070057), поэтому изолируем пробу.
-    Запуск отложен на 15 с и с пониженным приоритетом, чтобы не конкурировать
+    Запуск отложен на 5 с и с пониженным приоритетом, чтобы не конкурировать
     с приложением за GPU/CPU на слабых ноутбуках."""
     try:
         if 'DmlExecutionProvider' not in _PROVIDERS or _PROVIDER_OPTIONS:
@@ -532,10 +573,9 @@ def cli_tune_gpu():
         if best_time >= default_t * 0.85:
             print(f"  [tune] текущий адаптер оптимален ({default_t:.2f} с) — оставляем")
             return
-        cfg_path = BASE_DIR / 'config.json'
-        cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
+        cfg = _load_config()
         cfg['gpu_device_id'] = best_id
-        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+        _save_config(cfg)
         print(f"  [tune] выбран адаптер #{best_id} ({best_time:.2f} с), сохранено в config.json")
     except Exception as e:
         print(f"  [tune] ошибка: {e}")
@@ -990,16 +1030,17 @@ def select_model():
     if p.suffix.lower() != '.onnx' or not p.exists() or not p.is_file():
         return jsonify({'error': 'Модель не найдена'}), 404
 
-    cfg_path = BASE_DIR / 'config.json'
     try:
-        cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
+        cfg = _load_config()
         cfg['selected_model'] = p.name
-        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+        _save_config(cfg)
     except Exception as e:
         return jsonify({'error': f'Не удалось сохранить настройку: {e}'}), 500
 
-    # Сбрасываем сессию — следующая обработка загрузит новую модель
-    SESSION = None
+    # Сбрасываем сессию — следующая обработка загрузит новую модель.
+    # Под блокировкой, чтобы не создать вторую DML-сессию параллельно с инференсом.
+    with SESSION_LOCK:
+        SESSION = None
     return jsonify({'ok': True, 'name': p.name})
 
 @app.route('/icon')
@@ -1117,8 +1158,8 @@ def apply_update():
         bat = upd_dir / '_update.bat'
 
         if kind == 'installer':
-            # Установщик: дождаться выхода приложения, тихая установка (/SILENT),
-            # перезапуск. UAC-запрос покажет сам установщик.
+            # Установщик: дождаться выхода приложения (и снятия блокировки файлов),
+            # тихая установка (/SILENT), перезапуск. UAC-запрос покажет сам установщик.
             lines = [
                 '@echo off',
                 'setlocal',
@@ -1129,14 +1170,16 @@ def apply_update():
                 'set /a tries=0',
                 ':waitloop',
                 'tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul',
-                'if errorlevel 1 goto run',
+                'if errorlevel 1 goto settle',
                 'set /a tries+=1',
                 'if %tries% geq 30 (',
                 '    taskkill /F /IM "%EXE%" >nul 2>&1',
-                '    goto run',
+                '    goto settle',
                 ')',
                 'ping 127.0.0.1 -n 2 > nul',
                 'goto waitloop',
+                ':settle',
+                'ping 127.0.0.1 -n 3 > nul',
                 ':run',
                 'start "" /wait "%SRC%" /SILENT /SP- /SUPPRESSMSGBOXES /NORESTART',
                 'if exist "%SRC%" del "%SRC%" >nul 2>&1',
@@ -1165,13 +1208,30 @@ def apply_update():
                 'ping 127.0.0.1 -n 2 > nul',
                 'goto waitloop',
                 ':copy',
-                'copy /Y "%SRC%" "%DST%" >nul 2>&1',
-                'if not exist "%DST%" goto fail',
+                'set /a ctries=0',
+                ':copyloop',
+                'copy /Y "%SRC%" "%DST%.new" >nul 2>&1',
+                'if exist "%DST%.new" goto moveit',
+                'set /a ctries+=1',
+                'if %ctries% geq 10 goto fail',
+                'ping 127.0.0.1 -n 2 > nul',
+                'goto copyloop',
+                ':moveit',
+                'set /a mtries=0',
+                ':moveloop',
+                'move /Y "%DST%.new" "%DST%" >nul 2>&1',
+                'if exist "%DST%" goto done',
+                'set /a mtries+=1',
+                'if %mtries% geq 10 goto fail',
+                'ping 127.0.0.1 -n 2 > nul',
+                'goto moveloop',
+                ':done',
                 'if exist "%SRC%" del "%SRC%" >nul 2>&1',
                 'start "" /D "%DSTDIR%" "%DST%" >nul 2>&1',
                 'del "%~f0" >nul 2>&1',
                 'exit /b 0',
                 ':fail',
+                'if exist "%DST%.new" del "%DST%.new" >nul 2>&1',
                 'if exist "%SRC%" del "%SRC%" >nul 2>&1',
                 'del "%~f0" >nul 2>&1',
                 'exit /b 1',
@@ -1216,15 +1276,15 @@ def ring():
 @app.route('/mask')
 def mask():
     if MASK_PATH.exists():
-        img = Image.open(MASK_PATH)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
-        buffer.seek(0)
-        response = send_file(buffer, mimetype='image/png')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
-        return response
+        with Image.open(MASK_PATH) as img:
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            response = send_file(buffer, mimetype='image/png')
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+            return response
     img = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
     buffer = io.BytesIO()
     img.save(buffer, format='PNG')
@@ -1356,8 +1416,9 @@ def detect_face():
         return jsonify({'error': 'Недопустимый формат файла'}), 400
 
     try:
-        image = Image.open(file.stream).convert('RGBA')
-        image.load()
+        with Image.open(file.stream) as _im:
+            image = _im.convert('RGBA')
+            image.load()
         detector = FaceDetector()
         result = detector.detect(image)
         if result is None:
@@ -1475,9 +1536,9 @@ def cli_remove_bg(input_path: str):
         sys.exit(1)
     print(f"Удаление фона: {input_path.name}")
     load_session()
-    image = Image.open(input_path)
-    image = validate_image(image)
-    result = remove_background(image)
+    with Image.open(input_path) as image:
+        image = validate_image(image)
+        result = remove_background(image)
     out_path = input_path.with_name(input_path.stem + '_nobg.webp')
     buf, _ = save_image(result, 'webp', 90)
     out_path.write_bytes(buf.read())
@@ -1490,38 +1551,11 @@ def cli_to_webp(input_path: str):
         print(f"Файл не найден: {input_path}", file=sys.stderr)
         sys.exit(1)
     print(f"Конвертация в WebP: {input_path.name}")
-    image = Image.open(input_path)
-    out_path = input_path.with_suffix('.webp')
-    buf, _ = save_image(image, 'webp', 90)
-    out_path.write_bytes(buf.read())
+    with Image.open(input_path) as image:
+        out_path = input_path.with_suffix('.webp')
+        buf, _ = save_image(image, 'webp', 90)
+        out_path.write_bytes(buf.read())
     print(f"Сохранено: {out_path}")
-
-
-if __name__ == '__main__' and not getattr(sys, 'frozen', False):
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--remove-bg', metavar='FILE')
-    parser.add_argument('--to-webp', metavar='FILE')
-    parser.add_argument('--tune-gpu', action='store_true')
-    args, _ = parser.parse_known_args()
-
-    if args.remove_bg:
-        cli_remove_bg(args.remove_bg)
-    elif args.to_webp:
-        cli_to_webp(args.to_webp)
-    elif args.tune_gpu:
-        cli_tune_gpu()
-    else:
-        print("\n" + "=" * 50)
-        print("Background Remover & Token Maker")
-        print("=" * 50)
-        try:
-            load_session()
-            print(f"Device: {DEVICE_NAME}")
-        except Exception as e:
-            print(f"Model: {e}")
-        print("http://localhost:7878")
-        print("=" * 50 + "\n")
-        app.run(host='0.0.0.0', port=7878, debug=False, threaded=True)
 
 @app.route('/save_file', methods=['POST'])
 def save_file():
@@ -1683,11 +1717,15 @@ def get_config():
 
 @app.route('/config', methods=['POST'])
 def save_config():
-    import json
     config_path = BASE_DIR / 'config.json'
     try:
         data = request.get_json(force=True, silent=True) or {}
-        config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        # Серверные ключи (выбор модели, GPU) не должны затираться клиентским снапшотом
+        existing = _load_config()
+        for key in ('selected_model', 'gpu_device_id'):
+            if key not in data and key in existing:
+                data[key] = existing[key]
+        _save_config(data)
         return jsonify({'ok': True})
     except Exception as ex:
         return jsonify({'error': str(ex)}), 500
@@ -1703,4 +1741,33 @@ def shutdown():
         return 'ok'
     except Exception:
         return 'error', 500
+
+
+if __name__ == '__main__' and not getattr(sys, 'frozen', False):
+    # Блок обязан быть в КОНЦЕ файла: иначе маршруты ниже не зарегистрируются
+    # при запуске `python server.py` (app.run() блокирует выполнение модуля).
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--remove-bg', metavar='FILE')
+    parser.add_argument('--to-webp', metavar='FILE')
+    parser.add_argument('--tune-gpu', action='store_true')
+    args, _ = parser.parse_known_args()
+
+    if args.remove_bg:
+        cli_remove_bg(args.remove_bg)
+    elif args.to_webp:
+        cli_to_webp(args.to_webp)
+    elif args.tune_gpu:
+        cli_tune_gpu()
+    else:
+        print("\n" + "=" * 50)
+        print("Background Remover & Token Maker")
+        print("=" * 50)
+        try:
+            load_session()
+            print(f"Device: {DEVICE_NAME}")
+        except Exception as e:
+            print(f"Model: {e}")
+        print("http://localhost:7878")
+        print("=" * 50 + "\n")
+        app.run(host='0.0.0.0', port=7878, debug=False, threaded=True)
 

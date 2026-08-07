@@ -83,7 +83,11 @@ function applyColorCorrection(canvas) {
             }
         }
 
-        sat = sat + saturationAdjust * (1 - sat);
+        if (saturationAdjust >= 0) {
+            sat = sat + saturationAdjust * (1 - sat);
+        } else {
+            sat = sat * (1 + saturationAdjust);
+        }
         sat = Math.max(0, Math.min(1, sat));
 
         l = l + lightnessAdjust * (lightnessAdjust > 0 ? (1 - l) : l);

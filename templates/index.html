@@ -541,17 +541,6 @@
 <script src="{{ url_for('static', filename='js/converter.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
-    fetch('/version').then(r => r.json()).then(d => {
-        const el = document.getElementById('aboutVersion');
-        if (el) el.textContent = 'Версия ' + d.version + ' · Настольные ролевые игры';
-        const tv = document.getElementById('titleVersion');
-        if (tv) tv.textContent = d.version;
-    }).catch(() => {});
-    fetch('/device').then(r => r.json()).then(d => {
-        const el = document.getElementById('aboutDeviceValue');
-        if (el) el.textContent = d.device;
-    }).catch(() => {});
-
     document.getElementById('saveQualitySelect').addEventListener('change', function() {
         updateSaveHint(this.value, document.getElementById('saveScaleSelect').value);
     });
@@ -571,39 +560,6 @@
             hint.textContent = quality + 'px × ' + s + ' = ' + (quality * s) + 'px итоговый файл';
         }
     }
-
-    document.getElementById('checkUpdatesBtn').addEventListener('click', function() {
-        var btn = this;
-        btn.disabled = true;
-        btn.textContent = 'Проверка...';
-        fetch('/check_update', { method: 'POST' }).then(function() {
-            var retries = 30;
-            function poll() {
-                fetch('/update_status').then(function(r) { return r.json(); }).then(function(d) {
-                    if (!d.update_checked) {
-                        if (--retries > 0) { setTimeout(poll, 500); return; }
-                        toast('Не удалось проверить обновления', true);
-                        btn.disabled = false; btn.textContent = 'Проверить обновления';
-                        return;
-                    }
-                    if (d.update_available) {
-                        toast('Доступна версия ' + d.update_tag + '! Перезапустите приложение для установки');
-                    } else {
-                        toast('У вас актуальная версия');
-                    }
-                    btn.disabled = false; btn.textContent = 'Проверить обновления';
-                }).catch(function() {
-                    if (--retries > 0) { setTimeout(poll, 500); return; }
-                    toast('Ошибка проверки обновлений', true);
-                    btn.disabled = false; btn.textContent = 'Проверить обновления';
-                });
-            }
-            setTimeout(poll, 300);
-        }).catch(function() {
-            toast('Ошибка сети', true);
-            btn.disabled = false; btn.textContent = 'Проверить обновления';
-        });
-    });
 </script>
 </div>
 </body>

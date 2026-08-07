@@ -52,6 +52,10 @@ def remove_bg(file_path: str):
 
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
+            if resp.status != 200:
+                err = resp.read().decode('utf-8', errors='replace')[:200]
+                _notify(f'Ошибка сервера: {err}')
+                sys.exit(1)
             result_data = resp.read()
         out_path = file_path.with_suffix('.webp')
         out_path.write_bytes(result_data)
@@ -71,11 +75,11 @@ def to_webp(file_path: str):
         sys.exit(0)
 
     try:
-        image = Image.open(file_path)
-        out_path = file_path.with_suffix('.webp')
-        buf = io.BytesIO()
-        image.save(buf, format='WEBP', quality=90)
-        out_path.write_bytes(buf.getvalue())
+        with Image.open(file_path) as image:
+            out_path = file_path.with_suffix('.webp')
+            buf = io.BytesIO()
+            image.save(buf, format='WEBP', quality=90)
+            out_path.write_bytes(buf.getvalue())
         if out_path != file_path:
             file_path.unlink()
     except Exception:

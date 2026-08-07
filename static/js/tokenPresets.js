@@ -248,6 +248,7 @@ const TokenPresets = {
 
         state.currentPreset = index;
         this.updateButtons();
+        TokenCanvas.invalidateAllCaches();
         TokenHistory.save();
         TokenCanvas.render();
         toast(`Пресет "${preset.name}" применён`);

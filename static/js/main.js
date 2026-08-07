@@ -56,8 +56,10 @@ function initGlobalShortcuts() {
     document.addEventListener('keydown', e => {
         const code = e.code;
         const hk = AppConfig.hotkeys;
+        const tag = e.target.tagName.toLowerCase();
+        const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
 
-        if (e.ctrlKey && code === hk.openFile) {
+        if (e.ctrlKey && code === hk.openFile && !isInput) {
             e.preventDefault();
             const tokenPanel = $('tokenPanel');
             if (tokenPanel?.classList.contains('active')) {
@@ -68,7 +70,7 @@ function initGlobalShortcuts() {
             return;
         }
 
-        if (e.ctrlKey && code === hk.saveAll) {
+        if (e.ctrlKey && code === hk.saveAll && !isInput) {
             e.preventDefault();
             const removerPanel = $('removerPanel');
             if (removerPanel?.classList.contains('active')) Remover.downloadAll();
@@ -84,8 +86,6 @@ function initGlobalShortcuts() {
         const tokenPanel = $('tokenPanel');
         if (!tokenPanel?.classList.contains('active')) return;
 
-        const tag = e.target.tagName.toLowerCase();
-        const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
         if (isInput) return;
 
         if (!e.ctrlKey) {
@@ -145,12 +145,11 @@ function initPasteHandler() {
 }
 
 function initSliderWheels() {
+    // Портретные слайдеры не включаем: PortraitGenerator вешает свои wheel-обработчики
     const configs = [
         { slider: 'scaleSlider',            input: 'scaleInput',            valEl: null },
         { slider: 'rotationSlider',          input: 'rotationInput',         valEl: null },
         { slider: 'eraserSize',              input: 'eraserSizeInput',       valEl: null },
-        { slider: 'portraitScaleSlider',     input: 'portraitScaleInput',    valEl: null },
-        { slider: 'portraitRotationSlider',  input: 'portraitRotationInput', valEl: null },
     ];
 
     configs.forEach(({ slider, input, valEl }) => {
@@ -402,7 +401,7 @@ function initAboutUpdate() {
     }).catch(() => {});
     fetch('/device').then(r => r.json()).then(d => {
         const el = $('aboutDeviceValue');
-        if (el) el.textContent = (d.device || 'CPU').replace('DirectML', 'DirectML');
+        if (el) el.textContent = (d.device || 'CPU');
     }).catch(() => {});
 
     const btn = $('checkUpdatesBtn');
@@ -492,6 +491,9 @@ function pollAboutUpdate(retries) {
             if (actions) actions.innerHTML =
                 '<button class="accent-btn accent-btn-compact" onclick="applyAboutUpdate()">Установить</button>' +
                 '<button class="about-link" onclick="hideAboutUpdate()">Позже</button>';
+            aboutUpdating = false;
+            aboutDownloading = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
             return;
         }
         if (d.download_active && !d.download_error) {
@@ -505,6 +507,14 @@ function pollAboutUpdate(retries) {
         }
         if (d.download_error) {
             aboutUpdateSetStatus('<span style="color:#ef4444">Ошибка скачивания: ' + d.download_error + '</span>');
+            if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
+            aboutUpdating = false;
+            aboutDownloading = false;
+            if ($('checkUpdatesBtn')) $('checkUpdatesBtn').disabled = false;
+            return;
+        }
+        if (d.update_checked && d.check_error) {
+            aboutUpdateSetStatus('<span style="color:#ef4444">Не удалось проверить обновления (нет соединения с GitHub)</span>');
             if (actions) actions.innerHTML = '<button class="about-link" onclick="hideAboutUpdate()">Закрыть</button>';
             aboutUpdating = false;
             aboutDownloading = false;

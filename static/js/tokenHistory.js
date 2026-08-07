@@ -71,6 +71,11 @@ var TokenHistory = {
 
         TokenCanvas._compositedImageDirty = true;
         TokenCanvas._zonesDirty = true;
+        TokenCanvas._shadowDirty = true;
+        TokenCanvas._isErasing = false;
+        TokenCanvas._workerQueue = [];
+        TokenCanvas._workerPending = false;
+        TokenCanvas._maskGen++;
         TokenCanvas.pendingErasePoints = [];
         if (TokenCanvas.eraseAnimationId) {
             cancelAnimationFrame(TokenCanvas.eraseAnimationId);

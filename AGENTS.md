@@ -70,7 +70,8 @@ No `requirements.txt` — the batch file is the source of truth.
 
 ## Critical file: `server.py` gotchas
 
-- **Duplicate route functions**: Several `@app.route` functions have orphaned duplicates below them as plain `def` (no decorator) — these are dead code but harmless. Example: `def index()` at line 333, `def process()` at line 469, `def preset()` at line 396.
+- **Duplicate route functions**: проверено — дубликатов нет, каждый `@app.route` объявлен ровно один раз.
+- **Блок `if __name__ == '__main__'` обязан быть в КОНЦЕ `server.py`**: при запуске `python server.py` `app.run()` блокирует модуль, и маршруты ниже не регистрируются (получали 404 на `/config`, `/save_file`, `/shutdown` в dev-режиме).
 - Every `@app.route` must be declared exactly once with the decorator.
 - Models live in `BASE_DIR/models/` (`get_selected_model_path()`: config `selected_model` → первый `*.onnx`). При первом запуске `model.onnx` из `BASE_DIR` автоматически перемещается в `models/`.
 

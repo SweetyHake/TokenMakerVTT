@@ -263,6 +263,15 @@ const Remover = {
             const blob = await res.blob();
             const time = ((Date.now() - start) / 1000).toFixed(1);
 
+            // clearAll() во время запроса удалил карточку — результат не сохраняем
+            const card = $(id);
+            if (!card) {
+                urlManager.revoke(id);
+                urlManager.revoke(id + '_src');
+                state.originalImages.delete(id);
+                return;
+            }
+
             const ext = state.selectedFormat === 'jpg' ? 'jpg' : state.selectedFormat;
             const baseName = file.name.replace(/\.[^.]+$/, '');
             const newName = baseName + '.' + ext;
@@ -273,13 +282,12 @@ const Remover = {
                 state.originalImages.delete(oldestKey);
                 urlManager.revoke(oldestKey);
                 urlManager.revoke(oldestKey + '_src');
+                urlManager.revoke(oldestKey + '_compare');
                 var oldestCard = $(oldestKey);
                 if (oldestCard) oldestCard.remove();
                 this.updateResultsCount();
             }
 
-            const card = $(id);
-            if (!card) return;
             const preview = card.querySelector('.result-preview');
             const info = card.querySelector('.result-info');
 
@@ -510,7 +518,7 @@ const Remover = {
     },
     
     updateResultsCount() {
-        const cards = document.querySelectorAll('.result-card').length;
+        const cards = document.querySelectorAll('#resultsGrid .result-card').length;
         const el = $('resultsCount');
         if (el) el.textContent = cards > 0 ? `${cards} файлов` : '';
     }

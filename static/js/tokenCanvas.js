@@ -47,6 +47,7 @@ var TokenCanvas = {
     },
 
     _renderRafId: null,
+    _maskGen: 0,
 
     requestRender: function() {
         var self = this;
@@ -97,7 +98,10 @@ var TokenCanvas = {
             this._worker = new Worker('/static/js/eraserWorker.js');
             this._worker.onmessage = this._onWorkerBrushDone.bind(this);
             this._worker.onerror = function() {
+                // Сбрасываем очередь, чтобы штрихи не зависли и не применились позже
                 TokenCanvas._worker = null;
+                TokenCanvas._workerPending = false;
+                TokenCanvas._workerQueue = [];
             };
         } catch(e) {
             this._worker = null;
@@ -109,6 +113,11 @@ var TokenCanvas = {
         if (!state.imageMaskCanvas) return;
 
         var d = e.data;
+        // Ответ устаревшего поколения (после undo/сброса/загрузки нового изображения) — отбрасываем
+        if (d.gen !== this._maskGen) return;
+        if (d.regionX + d.regionWidth > state.imageMaskCanvas.width ||
+            d.regionY + d.regionHeight > state.imageMaskCanvas.height) return;
+
         var ctx = state.imageMaskCanvas.getContext('2d');
         var imageData = new ImageData(
             new Uint8ClampedArray(d.maskData),
@@ -194,6 +203,7 @@ var TokenCanvas = {
         this._worker.postMessage({
             type: 'applyBrush',
             id: Date.now(),
+            gen: this._maskGen,
             maskData: maskBuffer,
             maskWidth: mw,
             maskHeight: mh,
@@ -349,6 +359,7 @@ var TokenCanvas = {
     _invalidateComposite: function() {
         this._compositedImageDirty = true;
         this._zonesDirty = true;
+        this._zoneHelpersDirty = true;
         this._shadowDirty = true;
     },
 
@@ -755,6 +766,9 @@ var TokenCanvas = {
         }
 
         if (state.userImage) {
+            // При сохранении цветокоррекция должна быть актуальной, даже если
+            // отложенный пересчёт (scheduleEffects) ещё не сработал
+            if (state.colorCorrectionEnabled) this._ccDirty = true;
             this._buildCompositedImage();
 
             var tempCanvas = document.createElement('canvas');
@@ -1114,6 +1128,10 @@ var TokenCanvas = {
 
         this.requestRender();
 
+        // Пока идёт длинный штрих — держим эффекты (тень) выключенными,
+        // иначе тень пересчитывается на каждом кадре
+        if (this.isErasing) this.scheduleEffects();
+
         if (this.pendingErasePoints.length > 0 || this.isErasing) {
             this.eraseAnimationId = requestAnimationFrame(function() { self.processErasePoints(); });
         } else {
@@ -1169,14 +1187,32 @@ var TokenCanvas = {
         this._isErasing = false;
         state.lastErasePos = null;
         this._shadowDirty = true;
-        
+        this._eraseSaveTries = 0;
+
         var self = this;
-        setTimeout(function() {
-            if (self.pendingErasePoints.length === 0 && !self.eraseAnimationId) {
-                TokenHistory.save();
-                self.render();
-            }
-        }, 50);
+        setTimeout(function() { self._trySaveHistoryAfterErase(); }, 50);
+    },
+
+    _trySaveHistoryAfterErase: function() {
+        // Ждём завершения worker-очереди, чтобы последний штрих попал в историю
+        if (this.pendingErasePoints.length === 0 && !this.eraseAnimationId &&
+            !this._workerPending && this._workerQueue.length === 0) {
+            this._eraseSaveTries = 0;
+            TokenHistory.save();
+            this.render();
+            return;
+        }
+        if (this._eraseSaveTries < 10) {
+            this._eraseSaveTries++;
+            var self = this;
+            setTimeout(function() { self._trySaveHistoryAfterErase(); }, 100);
+        } else {
+            this._eraseSaveTries = 0;
+            this._workerPending = false;
+            this._workerQueue = [];
+            TokenHistory.save();
+            this.render();
+        }
     },
 
     setupEvents: function() {
@@ -1521,6 +1557,7 @@ var TokenCanvas = {
         this._workerQueue = [];
         this._workerPending = false;
         this._deferCC = false;
+        this._maskGen++;
     },
     resetMask: function() {
         var maskCtx = state.maskCanvas.getContext('2d');
@@ -1572,6 +1609,9 @@ var TokenCanvas = {
     
     resetImageMask: function() {
         if (!state.imageMaskCanvas) return;
+        this._workerQueue = [];
+        this._workerPending = false;
+        this._maskGen++;
         var ctx = state.imageMaskCanvas.getContext('2d');
         ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = 'white';

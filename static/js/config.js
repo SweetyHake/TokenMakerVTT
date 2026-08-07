@@ -100,6 +100,7 @@ const AppConfig = {
                 colorCorrection: { ...def.colorCorrection, ...(saved.colorCorrection || {}) },
                 lastFolders: { ...def.lastFolders, ...(saved.lastFolders || {}) },
                 example: { ...def.example, ...(saved.example || {}) },
+                converter: { ...def.converter, ...(saved.converter || {}) },
                 remover: { ...def.remover, ...(saved.remover || {}) },
                 saveSettings: { ...def.saveSettings, ...(saved.saveSettings || {}) },
                 selected_model: saved.selected_model || null,

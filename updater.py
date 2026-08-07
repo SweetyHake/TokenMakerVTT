@@ -32,6 +32,7 @@ class _UpdateState:
     def __init__(self):
         self.lock = Lock()
         self.checked = False
+        self.check_error = False
         self.available = None
         self.url = None
         self.tag = None
@@ -46,6 +47,7 @@ class _UpdateState:
         with self.lock:
             return {
                 "update_checked": self.checked,
+                "check_error": self.check_error,
                 "update_available": self.available,
                 "update_url": self.url,
                 "update_tag": self.tag,
@@ -61,9 +63,14 @@ class _UpdateState:
     def complete_check(self, available, url=None, tag=None):
         with self.lock:
             self.checked = True
+            self.check_error = False
             self.available = available
             self.url = url
             self.tag = tag
+
+    def set_check_error(self):
+        with self.lock:
+            self.check_error = True
 
     def get_url(self):
         with self.lock:
@@ -142,10 +149,10 @@ def _update_dir():
 
 def _find_exe_asset(assets):
     """Лучший .exe-ассет для автообновления.
-    Приоритет: голый TokenMaker.exe (копируется поверх exe приложения).
-    Если его нет — установщик Inno Setup (TokenMaker_Setup_v*.exe):
-    приложение запускает его в тихом режиме (/SILENT)."""
-    setup_asset = None
+    Приоритет: установщик Inno Setup (TokenMaker_Setup_v*.exe) — он сам обновляет
+    всю папку приложения. Голый TokenMaker.exe (без _internal) — только как
+    запасной вариант: его нельзя копировать поверх exe приложения."""
+    bare_asset = None
     for asset in assets:
         name = asset.get("name", "")
         if not name.lower().endswith(".exe"):
@@ -153,11 +160,10 @@ def _find_exe_asset(assets):
         if APP_NAME.lower() not in name.lower():
             continue
         if "setup" in name.lower() or "installer" in name.lower():
-            if setup_asset is None:
-                setup_asset = asset.get("browser_download_url")
-            continue
-        return asset.get("browser_download_url")
-    return setup_asset
+            return asset.get("browser_download_url")
+        if bare_asset is None:
+            bare_asset = asset.get("browser_download_url")
+    return bare_asset
 
 
 def check_for_updates(force=False):
@@ -168,7 +174,9 @@ def check_for_updates(force=False):
 
         if not force and _check_throttle_file():
             _logger.info("Skipping update check (throttled)")
-            _state.complete_check(False)
+            # Не затираем уже известное состояние (например, найденное ранее обновление)
+            if not _state.checked:
+                _state.complete_check(False)
             return
 
         req = Request(_api_url("releases/latest"))
@@ -197,29 +205,38 @@ def check_for_updates(force=False):
     except Exception as exc:
         _logger.warning("Update check failed: %s", exc)
         _state.complete_check(False)
+        _state.set_check_error()
 
 
 def download_update():
     try:
+        with _state.lock:
+            if _state.download_active or _state.download_done:
+                return
+            _state.download_active = True
+
         url = _state.get_url()
         if not url:
+            _state.set_download_active(False)
             raise ValueError("No download URL")
 
         clean = url.split("?")[0]
         if not clean.endswith(".exe"):
+            _state.set_download_active(False)
             raise ValueError("Автообновление недоступно: нет exe-файла приложения. Скачайте установщик вручную с GitHub Releases")
 
         kind = "installer" if ("setup" in Path(clean).name.lower() or "installer" in Path(clean).name.lower()) else "bare"
         _state.set_download_kind(kind)
-        _state.set_download_active(True)
 
         upd_dir = _update_dir()
+        dest = upd_dir / "TokenMaker_update.exe"
+        # Удаляем только чужие/старые файлы обновлений, не трогая текущий dest
         for old in upd_dir.glob("TokenMaker_update*"):
             try:
-                old.unlink()
+                if old.resolve() != dest.resolve():
+                    old.unlink()
             except OSError:
                 pass
-        dest = upd_dir / "TokenMaker_update.exe"
 
         req = Request(url)
         req.add_header("User-Agent", f"{APP_NAME}/{__version__}")

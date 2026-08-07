@@ -39,6 +39,7 @@ self.onmessage = function(e) {
     self.postMessage({
         type: 'brushDone',
         id: data.id,
+        gen: data.gen,
         maskData: mask.buffer,
         regionX: regionX,
         regionY: regionY,

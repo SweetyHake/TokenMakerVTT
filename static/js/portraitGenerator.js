@@ -134,7 +134,7 @@ const PortraitGenerator = {
 
         window.addEventListener('mousemove', e => {
             if (!this.isDragging) return;
-            const displaySide = parseFloat(c.style.width) || this.DISPLAY_SIZE;
+            const displaySide = c.getBoundingClientRect().width || this.DISPLAY_SIZE;
             const ratio = this.SIZE / displaySide;
             this.imageX = this.dragStartImgX + (e.clientX - this.dragStartX) * ratio;
             this.imageY = this.dragStartImgY + (e.clientY - this.dragStartY) * ratio;

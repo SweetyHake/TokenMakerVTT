@@ -188,14 +188,22 @@ const Converter = {
             }
 
             const blob = await res.blob();
+
+            // clearAll() во время запроса удалил карточку — результат не сохраняем
+            const card = $(id);
+            if (!card) {
+                urlManager.revoke(id);
+                urlManager.revoke(id + '_src');
+                this.originalNames.delete(id);
+                return;
+            }
+
             const ext = state.converterFormat === 'jpg' ? 'jpg' : state.converterFormat;
             const baseName = this.originalNames.get(id) || file.name;
             const newName = baseName.replace(/\.[^.]+$/, '') + '.' + ext;
 
             this.results.set(id, { blob, name: newName, format: state.converterFormat });
 
-            const card = $(id);
-            if (!card) return;
             const preview = card.querySelector('.result-preview');
             const info = card.querySelector('.result-info');
 
