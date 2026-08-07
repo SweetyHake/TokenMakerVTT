@@ -83,6 +83,15 @@ kernel32 = ctypes.windll.kernel32
 _wndproc_refs = []
 
 
+def _set_taskbar_identity():
+    """AppUserModelID: панель задач группирует окно под своим значком и названием,
+    а не под pythonw.exe/Python."""
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('TokenMaker.App')
+    except Exception:
+        pass
+
+
 def _nuclear_exit():
     if PID_FILE and PID_FILE.exists():
         try:
@@ -104,6 +113,8 @@ def main():
     from updater import start_background_tasks
 
     global PID_FILE
+
+    _set_taskbar_identity()
 
     if '--tune-gpu' in sys.argv:
         from server import cli_tune_gpu
@@ -191,13 +202,18 @@ def main():
             hwnd = ctypes.c_void_p(hwnd_int)
             ctypes.windll.user32.LoadImageW.restype = ctypes.c_void_p
             ctypes.windll.user32.SendMessageW.restype = ctypes.c_void_p
-            hicon = ctypes.windll.user32.LoadImageW(None, ctypes.c_wchar_p(icon_path), 1, 0, 0, 0x00000010)
-            if not hicon:
-                return
-            ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon)
-            ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon)
-            ctypes.windll.user32.SetClassLongPtrW(hwnd, -14, hicon)
-            ctypes.windll.user32.SetClassLongPtrW(hwnd, -34, hicon)
+            # Маленькая иконка (16px) — панель задач, большая (32px) — Alt+Tab
+            hicon_small = ctypes.windll.user32.LoadImageW(None, ctypes.c_wchar_p(icon_path), 1, 16, 16, 0x00000010)
+            hicon_big = ctypes.windll.user32.LoadImageW(None, ctypes.c_wchar_p(icon_path), 1, 32, 32, 0x00000010)
+            if not hicon_small:
+                hicon_small = hicon_big
+            if hicon_small:
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 0, hicon_small)   # ICON_SMALL
+            if hicon_big:
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0080, 1, hicon_big)     # ICON_BIG
+                ctypes.windll.user32.SetClassLongPtrW(hwnd, -14, hicon_big)       # GCLP_HICON
+            if hicon_small:
+                ctypes.windll.user32.SetClassLongPtrW(hwnd, -34, hicon_small)     # GCLP_HICONSM
         except Exception:
             pass
 
