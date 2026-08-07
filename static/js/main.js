@@ -379,7 +379,7 @@ function pollAboutUpdate(retries) {
         }
         if (d.download_progress >= 0 && !d.download_error) {
             aboutUpdateShowProgress(d.download_progress);
-            setTimeout(() => pollAboutUpdate(retries), 400);
+            setTimeout(() => pollAboutUpdate(retries), 1000);
             return;
         }
         if (d.download_error) {

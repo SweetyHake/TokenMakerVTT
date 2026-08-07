@@ -21,6 +21,12 @@ build.bat                 # PyInstaller only (portable folder)
 PyInstaller output: `dist/TokenMaker/TokenMaker.exe`
 Installer output: `dist/installer/TokenMaker_Setup_v*.exe`
 
+### GitHub Releases: только установщик
+
+В релизы загружается ТОЛЬКО `TokenMaker_Setup_v*.exe`. Голый `dist/TokenMaker/TokenMaker.exe` (~9 МБ) — это тонкий загрузчик PyInstaller без папки `_internal` (его нельзя качать отдельно, без `_internal` он не запустится). Если снова понадобится портативная версия — заливать ZIP всей папки `dist/TokenMaker/`.
+
+ВНИМАНИЕ: автообновление (`updater.py:_find_exe_asset`) пропускает установщики (имена с "setup"/"installer") — их нельзя копировать поверх exe приложения. Пока в релизе один ассет (установщик), в приложении показывается «доступна новая версия» со ссылкой на GitHub, автоскачивание недоступно. Если вернётся автообновление — нужен ассет с именем `TokenMaker.exe` (без "setup"), либо доработка апдейтера под установщик (`/SILENT`).
+
 Model file `model.onnx` is NOT bundled — user places it manually next to the exe.
 
 ### Inno Setup

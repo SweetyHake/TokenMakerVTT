@@ -116,15 +116,15 @@ const TokenPresets = {
                             const img = new Image();
                             const url = urlManager.create(blob, 'presets');
                             return new Promise(resolve => {
-                                img.onload = () => {
-                                    state.eraserPresets[index] = {
-                                        canvas: this.processMaskImage(img, TokenCanvas.internalSize),
-                                        rawImg: img,
-                                        name: preset.name,
-                                        file: preset.file
-                                    };
-                                    resolve();
-                                };
+                img.onload = () => {
+                    state.eraserPresets[index] = {
+                        canvas: this.processMaskImage(img, CONFIG.SCALE_SIZES[1]),
+                        rawImg: img,
+                        name: preset.name,
+                        file: preset.file
+                    };
+                    resolve();
+                };
                                 img.onerror = () => resolve();
                                 img.src = url;
                             });
@@ -139,15 +139,19 @@ const TokenPresets = {
     _buildPresetOverlay(presetIndex) {
         const preset = state.eraserPresets[presetIndex];
         if (!preset || !preset.canvas) return null;
+        if (this._overlayCache && this._overlayCache.index === presetIndex) {
+            return this._overlayCache.canvas;
+        }
 
-        const internalSize = TokenCanvas.internalSize;
+        const overlaySize = 1024;
         const overlay = document.createElement('canvas');
-        overlay.width = internalSize;
-        overlay.height = internalSize;
+        overlay.width = overlaySize;
+        overlay.height = overlaySize;
         const ctx = overlay.getContext('2d');
 
-        const srcData = preset.canvas.getContext('2d').getImageData(0, 0, internalSize, internalSize);
-        const outData = ctx.createImageData(internalSize, internalSize);
+        ctx.drawImage(preset.canvas, 0, 0, overlaySize, overlaySize);
+        const srcData = ctx.getImageData(0, 0, overlaySize, overlaySize);
+        const outData = ctx.createImageData(overlaySize, overlaySize);
         const sd = srcData.data;
         const od = outData.data;
 
@@ -160,6 +164,12 @@ const TokenPresets = {
         }
 
         ctx.putImageData(outData, 0, 0);
+
+        if (this._overlayCache && this._overlayCache.canvas !== overlay) {
+            this._overlayCache.canvas.width = 1;
+            this._overlayCache.canvas.height = 1;
+        }
+        this._overlayCache = { index: presetIndex, canvas: overlay };
         return overlay;
     },
 
@@ -183,14 +193,14 @@ const TokenPresets = {
             cancelAnimationFrame(this._presetOverlayRaf);
             this._presetOverlayRaf = null;
         }
-        TokenCanvas.render();
+        TokenCanvas.requestRender();
     },
 
     _animateOverlay() {
         if (!state.presetOverlayActive) return;
         this._presetOverlayPhase += 0.004;
         state._presetOverlayAlpha = 0.35 + Math.sin(this._presetOverlayPhase * Math.PI * 2) * 0.3;
-        TokenCanvas.render();
+        TokenCanvas.requestRender();
         this._presetOverlayRaf = requestAnimationFrame(() => this._animateOverlay());
     },
 
@@ -230,7 +240,10 @@ const TokenPresets = {
         maskCtx.fillStyle = 'white';
         maskCtx.fillRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
         maskCtx.globalCompositeOperation = 'destination-in';
-        maskCtx.drawImage(preset.canvas, 0, 0);
+        maskCtx.drawImage(
+            preset.canvas, 0, 0, preset.canvas.width, preset.canvas.height,
+            0, 0, state.maskCanvas.width, state.maskCanvas.height
+        );
         maskCtx.globalCompositeOperation = 'source-over';
 
         state.currentPreset = index;

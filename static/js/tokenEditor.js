@@ -95,11 +95,9 @@ const TokenEditor = {
             const data = await res.json();
             if (data.cancelled) return;
 
-            const byteString = atob(data.data);
-            const ab = new ArrayBuffer(byteString.length);
-            const ia = new Uint8Array(ab);
-            for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-            const blob = new Blob([ab], { type: data.mime });
+            const fileRes = await fetch('/get_image_by_path?path=' + encodeURIComponent(data.path));
+            if (!fileRes.ok) throw new Error('Не удалось загрузить файл');
+            const blob = await fileRes.blob();
             const fileName = data.path.split(/[\\/]/).pop();
             const file = new File([blob], fileName, { type: data.mime });
             TokenCanvas.loadImage(file, data.path);
@@ -266,12 +264,15 @@ const TokenEditor = {
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = state.userImageOriginal.width;
             tempCanvas.height = state.userImageOriginal.height;
-            tempCanvas.getContext('2d').drawImage(state.userImageOriginal, 0, 0);
-            const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/png'));
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.fillStyle = '#ffffff';
+            tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            tCtx.drawImage(state.userImageOriginal, 0, 0);
+            const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg', 0.92));
             tempCanvas.getContext('2d').clearRect(0, 0, tempCanvas.width, tempCanvas.height);
 
             const fd = new FormData();
-            fd.append('image', blob, 'image.png');
+            fd.append('image', blob, 'image.jpg');
             fd.append('format', 'png');
             const res = await fetch('/process', { method: 'POST', body: fd });
             if (!res.ok) throw new Error('Ошибка обработки');
@@ -336,11 +337,14 @@ const TokenEditor = {
             var tempCanvas = document.createElement('canvas');
             tempCanvas.width = img.width;
             tempCanvas.height = img.height;
-            tempCanvas.getContext('2d').drawImage(img, 0, 0);
-            var blob = await new Promise(function(resolve) { tempCanvas.toBlob(resolve, 'image/png'); });
+            var tCtx = tempCanvas.getContext('2d');
+            tCtx.fillStyle = '#ffffff';
+            tCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            tCtx.drawImage(img, 0, 0);
+            var blob = await new Promise(function(resolve) { tempCanvas.toBlob(resolve, 'image/jpeg', 0.92); });
 
             var fdDetect = new FormData();
-            fdDetect.append('image', blob, 'image.png');
+            fdDetect.append('image', blob, 'image.jpg');
             var detectRes = await fetch('/detect_face', { method: 'POST', body: fdDetect });
             if (detectRes.ok) {
                 var detectData = await detectRes.json();
@@ -408,7 +412,7 @@ const TokenEditor = {
                 setSliderFill(e.target);
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
+                TokenCanvas.requestRender();
             };
             scaleSlider.onchange = debouncedSave;
         }
@@ -436,7 +440,7 @@ const TokenEditor = {
                 setSliderFill(e.target);
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.scheduleEffects();
-                TokenCanvas.render();
+                TokenCanvas.requestRender();
             };
             rotationSlider.onchange = debouncedSave;
         }
@@ -537,6 +541,7 @@ const TokenEditor = {
         if (dropShadowCheck) {
             dropShadowCheck.onchange = e => {
                 state.dropShadowEnabled = e.target.checked;
+                if (!state.dropShadowEnabled) TokenCanvas._shadowCache = null;
                 TokenCanvas.invalidateEffectsCache();
                 TokenCanvas.render();
             };
@@ -545,7 +550,7 @@ const TokenEditor = {
         if (colorCorrectionCheck) {
             colorCorrectionCheck.onchange = e => {
                 state.colorCorrectionEnabled = e.target.checked;
-                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas.invalidateAllCaches();
                 TokenCanvas.render();
             };
         }
@@ -554,10 +559,18 @@ const TokenEditor = {
         this._setupExampleOverlay();
 
         const showErasedCheck = $('showErasedCheck');
-        if (showErasedCheck) showErasedCheck.onchange = e => { state.showErasedZones = e.target.checked; TokenCanvas.render(); };
+        if (showErasedCheck) showErasedCheck.onchange = e => {
+            state.showErasedZones = e.target.checked;
+            if (!state.showErasedZones) TokenCanvas._freeEffectCaches();
+            TokenCanvas.render();
+        };
 
         const showProtectionCheck = $('showProtectionCheck');
-        if (showProtectionCheck) showProtectionCheck.onchange = e => { state.showProtectionMask = e.target.checked; TokenCanvas.render(); };
+        if (showProtectionCheck) showProtectionCheck.onchange = e => {
+            state.showProtectionMask = e.target.checked;
+            if (!state.showProtectionMask) TokenCanvas._freeEffectCaches();
+            TokenCanvas.render();
+        };
 
         const showBordersCheck = $('showBordersCheck');
         if (showBordersCheck) showBordersCheck.onchange = e => { state.showScaleBorders = e.target.checked; TokenCanvas.render(); };
@@ -621,7 +634,8 @@ const TokenEditor = {
                 if (valEl) valEl.textContent = el.value; 
                 setSliderFill(el);
                 TokenCanvas.invalidateEffectsCache();
-                TokenCanvas.render(); 
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.requestRender(); 
             };
             el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
@@ -657,8 +671,10 @@ const TokenEditor = {
                 AppConfig.setColorCorrection(key, parseFloat(el.value)); 
                 if (valEl) valEl.textContent = el.value; 
                 setSliderFill(el);
-                TokenCanvas.invalidateAllCaches();
-                TokenCanvas.render(); 
+                TokenCanvas.invalidateEffectsCache();
+                TokenCanvas._deferCC = true;
+                TokenCanvas.scheduleEffects();
+                TokenCanvas.requestRender(); 
             };
             el.addEventListener('wheel', ev => { ev.preventDefault(); const step = parseFloat(el.step)||1; el.value = clamp(parseFloat(el.value)+(ev.deltaY<0?step:-step),parseFloat(el.min),parseFloat(el.max)); el.dispatchEvent(new Event('input')); }, { passive: false });
         });
@@ -819,7 +835,7 @@ const TokenEditor = {
         state.imageRotation += direction * step;
         if (state.imageRotation > 180) state.imageRotation -= 360;
         if (state.imageRotation < -180) state.imageRotation += 360;
-        TokenCanvas.updateRotationUI(); TokenCanvas.scheduleEffects(); TokenCanvas.render();
+        TokenCanvas.updateRotationUI(); TokenCanvas.scheduleEffects(); TokenCanvas.requestRender();
     },
 
     moveByKeys(step = CONFIG.MOVE_STEP) {
@@ -829,7 +845,7 @@ const TokenEditor = {
         if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown'))  { state.imageY += step; moved = true; }
         if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft'))  { state.imageX -= step; moved = true; }
         if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) { state.imageX += step; moved = true; }
-        if (moved) { TokenCanvas.scheduleEffects(); TokenCanvas.render(); }
+        if (moved) { TokenCanvas.scheduleEffects(); TokenCanvas.requestRender(); }
     },
 
     clearRotateTimers() {

@@ -46,6 +46,17 @@ var TokenCanvas = {
         return CONFIG.SCALE_SIZES[state.canvasScale] || CONFIG.BASE_SIZE;
     },
 
+    _renderRafId: null,
+
+    requestRender: function() {
+        var self = this;
+        if (this._renderRafId) return;
+        this._renderRafId = requestAnimationFrame(function() {
+            self._renderRafId = null;
+            self.render();
+        });
+    },
+
     init: function() {
         this.canvas = $('tokenCanvas');
         this.canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
@@ -97,13 +108,14 @@ var TokenCanvas = {
         this._workerPending = false;
         if (!state.imageMaskCanvas) return;
 
+        var d = e.data;
         var ctx = state.imageMaskCanvas.getContext('2d');
         var imageData = new ImageData(
-            new Uint8ClampedArray(e.data.maskData),
-            state.imageMaskCanvas.width,
-            state.imageMaskCanvas.height
+            new Uint8ClampedArray(d.maskData),
+            d.regionWidth,
+            d.regionHeight
         );
-        ctx.putImageData(imageData, 0, 0);
+        ctx.putImageData(imageData, d.regionX, d.regionY);
 
         this._invalidateComposite();
 
@@ -112,7 +124,7 @@ var TokenCanvas = {
             this._sendToWorker(next);
         }
 
-        this.render();
+        this.requestRender();
     },
 
     _sendToWorker: function(task) {
@@ -123,20 +135,31 @@ var TokenCanvas = {
 
         this._workerPending = true;
 
-        var maskCtx = state.imageMaskCanvas.getContext('2d');
-        var maskImageData = maskCtx.getImageData(0, 0, state.imageMaskCanvas.width, state.imageMaskCanvas.height);
-
         var imgBrush = this._getImageBrush();
         if (!imgBrush) { this._workerPending = false; return; }
-
-        var brushCtx = imgBrush.canvas.getContext('2d');
-        var brushImageData = brushCtx.getImageData(0, 0, imgBrush.canvas.width, imgBrush.canvas.height);
 
         var imgPos = this._canvasPosToImagePos(task.cx, task.cy);
         if (!imgPos) { this._workerPending = false; return; }
 
         var drawX = Math.round(imgPos.x - imgBrush.fullSize / 2);
         var drawY = Math.round(imgPos.y - imgBrush.fullSize / 2);
+
+        var mw = state.imageMaskCanvas.width;
+        var mh = state.imageMaskCanvas.height;
+        var pad = 2;
+        var regionX = Math.max(0, drawX - pad);
+        var regionY = Math.max(0, drawY - pad);
+        var regionX2 = Math.min(mw, drawX + imgBrush.fullSize + pad);
+        var regionY2 = Math.min(mh, drawY + imgBrush.fullSize + pad);
+        var regionW = regionX2 - regionX;
+        var regionH = regionY2 - regionY;
+        if (regionW <= 0 || regionH <= 0) { this._workerPending = false; return; }
+
+        var maskCtx = state.imageMaskCanvas.getContext('2d');
+        var maskImageData = maskCtx.getImageData(regionX, regionY, regionW, regionH);
+
+        var brushCtx = imgBrush.canvas.getContext('2d');
+        var brushImageData = brushCtx.getImageData(0, 0, imgBrush.canvas.width, imgBrush.canvas.height);
 
         var protData = null, protWidth = 0, protHeight = 0;
         if (state.erasableCanvas) {
@@ -172,13 +195,17 @@ var TokenCanvas = {
             type: 'applyBrush',
             id: Date.now(),
             maskData: maskBuffer,
-            maskWidth: state.imageMaskCanvas.width,
-            maskHeight: state.imageMaskCanvas.height,
+            maskWidth: mw,
+            maskHeight: mh,
             brushData: brushBuffer,
             brushWidth: imgBrush.canvas.width,
             brushHeight: imgBrush.canvas.height,
             drawX: drawX,
             drawY: drawY,
+            regionX: regionX,
+            regionY: regionY,
+            regionWidth: regionW,
+            regionHeight: regionH,
             protData: protData,
             protWidth: protWidth,
             protHeight: protHeight,
@@ -307,6 +334,18 @@ var TokenCanvas = {
         this._compositedImageDirty = true;
     },
 
+    _freeEffectCaches: function() {
+        var keys = ['_zoneInvMask', '_zoneBlueTemp', '_zoneInvScaled', '_zonePinkLayer',
+                    '_zonesCanvas', '_zoneInvImgMask', '_shadowCache', '_protectionOverlayCache'];
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (this[k]) { this[k].width = 1; this[k].height = 1; this[k] = null; }
+        }
+        this._zonesDirty = true;
+        this._zoneHelpersDirty = true;
+        this._protectionOverlayDirty = true;
+    },
+
     _invalidateComposite: function() {
         this._compositedImageDirty = true;
         this._zonesDirty = true;
@@ -366,7 +405,15 @@ var TokenCanvas = {
     updateEraserCursor: function(e) {
         if (!this.eraserCursor) return;
         var internalScale = this.internalSize / 1024;
-        var displaySide = parseFloat(this.canvas.style.width) || this.canvas.offsetWidth;
+        var displaySide = parseFloat(this.canvas.style.width);
+        if (!displaySide || !isFinite(displaySide)) {
+            if (this._cachedRect && this._cachedRect.width) {
+                displaySide = this._cachedRect.width;
+            } else {
+                var r = this.canvas.getBoundingClientRect();
+                displaySide = r.width;
+            }
+        }
         if (!displaySide) return;
         var pixelsPerInternalUnit = (displaySide / this.internalSize) * state.viewZoom;
         var brushInternalRadius = state.eraserSize * internalScale;
@@ -500,8 +547,9 @@ var TokenCanvas = {
 
         if (state.presetOverlayActive && state.presetOverlayCanvas) {
             var alpha = state._presetOverlayAlpha !== undefined ? state._presetOverlayAlpha : 0.6;
+            var po = state.presetOverlayCanvas;
             this.ctx.globalAlpha = alpha;
-            this.ctx.drawImage(state.presetOverlayCanvas, 0, 0);
+            this.ctx.drawImage(po, 0, 0, po.width, po.height, 0, 0, size, size);
             this.ctx.globalAlpha = 1;
         }
 
@@ -765,17 +813,20 @@ var TokenCanvas = {
         var scale = internalSize / 1024;
         var s3 = CONFIG.SCALE_SIZES[3];
 
+        var SCAN = 512;
+        var factor = internalSize / SCAN;
+
         var scanCanvas = document.createElement('canvas');
-        scanCanvas.width = internalSize;
-        scanCanvas.height = internalSize;
+        scanCanvas.width = SCAN;
+        scanCanvas.height = SCAN;
         var sCtx = scanCanvas.getContext('2d');
 
         this._buildCompositedImage();
 
-        var w  = state.userImage.width  * state.imageScale * scale;
-        var h  = state.userImage.height * state.imageScale * scale;
-        var cx = internalSize / 2 + state.imageX * scale;
-        var cy = internalSize / 2 + state.imageY * scale;
+        var w  = state.userImage.width  * state.imageScale * scale / factor;
+        var h  = state.userImage.height * state.imageScale * scale / factor;
+        var cx = SCAN / 2 + state.imageX * scale / factor;
+        var cy = SCAN / 2 + state.imageY * scale / factor;
         var angle = state.imageRotation * Math.PI / 180;
 
         sCtx.save();
@@ -785,20 +836,20 @@ var TokenCanvas = {
         sCtx.restore();
 
         sCtx.globalCompositeOperation = 'destination-in';
-        sCtx.drawImage(state.maskCanvas, 0, 0);
+        sCtx.drawImage(state.maskCanvas, 0, 0, internalSize, internalSize, 0, 0, SCAN, SCAN);
         sCtx.globalCompositeOperation = 'source-over';
 
-        var data = sCtx.getImageData(0, 0, internalSize, internalSize).data;
+        var data = sCtx.getImageData(0, 0, SCAN, SCAN).data;
 
         scanCanvas.width = 1;
         scanCanvas.height = 1;
 
-        var minX = internalSize, minY = internalSize, maxX = -1, maxY = -1;
+        var minX = SCAN, minY = SCAN, maxX = -1, maxY = -1;
         var threshold = 15;
 
-        for (var y = 0; y < internalSize; y++) {
-            for (var x = 0; x < internalSize; x++) {
-                if (data[(y * internalSize + x) * 4 + 3] > threshold) {
+        for (var y = 0; y < SCAN; y++) {
+            for (var x = 0; x < SCAN; x++) {
+                if (data[(y * SCAN + x) * 4 + 3] > threshold) {
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
                     if (y < minY) minY = y;
@@ -808,6 +859,12 @@ var TokenCanvas = {
         }
 
         if (maxX === -1) return 1;
+
+        // Растягиваем границы на 1 пиксель скана наружу — компенсация даунскейла
+        minX = Math.max(0, minX * factor - factor);
+        minY = Math.max(0, minY * factor - factor);
+        maxX = Math.min(internalSize, (maxX + 1) * factor + factor);
+        maxY = Math.min(internalSize, (maxY + 1) * factor + factor);
 
         for (var s = 1; s <= 3; s++) {
             var borderSize   = CONFIG.SCALE_SIZES[s] * (internalSize / s3);
@@ -886,6 +943,11 @@ var TokenCanvas = {
             state.effectsEnabled = true;
             state.effectsTimeout = null;
             self._shadowDirty = true;
+            if (self._deferCC) {
+                self._deferCC = false;
+                self._ccDirty = true;
+                self._compositedImageDirty = true;
+            }
             self.render();
         }, CONFIG.EFFECTS_DELAY);
     },
@@ -1032,7 +1094,7 @@ var TokenCanvas = {
 
         if (this.pendingErasePoints.length === 0) {
             this.eraseAnimationId = null;
-            this.render();
+            this.requestRender();
             return;
         }
 
@@ -1050,7 +1112,7 @@ var TokenCanvas = {
             }
         }
 
-        this.render();
+        this.requestRender();
 
         if (this.pendingErasePoints.length > 0 || this.isErasing) {
             this.eraseAnimationId = requestAnimationFrame(function() { self.processErasePoints(); });
@@ -1193,7 +1255,7 @@ var TokenCanvas = {
                 state.imageX = pos.x / sc - state.dragStart.x;
                 state.imageY = pos.y / sc - state.dragStart.y;
                 self.scheduleEffects();
-                self.render();
+                self.requestRender();
             } else if ((state.currentTool === 'eraser' || state.currentTool === 'mask') && self.isErasing) {
                 self.addErasePoint(pos.x, pos.y, state.isRestoring);
             }
@@ -1240,7 +1302,7 @@ var TokenCanvas = {
                 state.imageX = pos.x / sc - state.dragStart.x;
                 state.imageY = pos.y / sc - state.dragStart.y;
                 self.scheduleEffects();
-                self.render();
+                self.requestRender();
             } else if ((state.currentTool === 'eraser' || state.currentTool === 'mask') && self.isErasing) {
                 self.addErasePoint(pos.x, pos.y, state.isRestoring);
             }
@@ -1278,7 +1340,7 @@ var TokenCanvas = {
                 self._imageBrushCache = null;
                 self.updateScaleUI();
                 self.scheduleEffects();
-                self.render();
+                self.requestRender();
                 if (self._debouncedSave) self._debouncedSave();
             } else if (e.shiftKey) {
                 var panAmount = CONFIG.PAN_AMOUNT / state.viewZoom;
@@ -1341,63 +1403,87 @@ var TokenCanvas = {
         var fileNameInput = $('tokenFileName');
         if (fileNameInput) fileNameInput.value = state.tokenFileName;
 
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            var img = new Image();
-            img.onload = function() {
-                state.userImage = img;
-                state.userImageOriginal = img;
-                state.userImageWithoutBg = null;
-                state.backgroundRemoved = false;
-                state.showingOriginal = false;
-                TokenEditor.updateRemoveBgButton();
+        var self = this;
+        urlManager.revoke('userImage-decode');
+        var decodeUrl = urlManager.create(file, 'userImage-decode');
+        var img = new Image();
+        img.onload = function() {
+            urlManager.revoke('userImage-decode');
+            var finalImg = self._capImage(img);
 
-                if (prevScale !== null) {
-                    state.imageScale = prevScale;
-                    state.imageX = prevX;
-                    state.imageY = prevY;
-                    state.imageRotation = prevRotation;
-                } else {
-                    var internalSize = self.internalSize;
-                    var scale = internalSize / 1024;
-                    var maxDisplayPx = CONFIG.SCALE_SIZES[1] * scale;
-                    var imgMaxDim = Math.max(img.width, img.height);
-                    state.imageScale = (maxDisplayPx / imgMaxDim) / scale;
-                    state.imageX = 0;
-                    state.imageY = 0;
-                    state.imageRotation = 0;
-                }
+            state.userImage = finalImg;
+            state.userImageOriginal = finalImg;
+            state.userImageWithoutBg = null;
+            state.backgroundRemoved = false;
+            state.showingOriginal = false;
+            TokenEditor.updateRemoveBgButton();
 
-                self.updateScaleUI();
-                self.updateRotationUI();
-                self.resetView();
+            if (prevScale !== null) {
+                state.imageScale = prevScale;
+                state.imageX = prevX;
+                state.imageY = prevY;
+                state.imageRotation = prevRotation;
+            } else {
+                var internalSize = self.internalSize;
+                var scale = internalSize / 1024;
+                var maxDisplayPx = CONFIG.SCALE_SIZES[1] * scale;
+                var imgMaxDim = Math.max(finalImg.width, finalImg.height);
+                state.imageScale = (maxDisplayPx / imgMaxDim) / scale;
+                state.imageX = 0;
+                state.imageY = 0;
+                state.imageRotation = 0;
+            }
 
-                self.createMask();
-                self.createImageMask();
-                state.currentPreset = -1;
-                TokenPresets.updateButtons();
-                if (typeof TokenEditor !== 'undefined') {
-                    var undoBar = $('undoBar');
-                    if (undoBar) undoBar.style.display = 'flex';
-                    TokenEditor._updateUndoButtons();
-                }
-                TokenHistory.init();
-                self.render();
+            self.updateScaleUI();
+            self.updateRotationUI();
+            self.resetView();
 
-                if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) {
-                    PortraitGenerator.onImageLoaded();
-                }
+            self.createMask();
+            self.createImageMask();
+            state.currentPreset = -1;
+            TokenPresets.updateButtons();
+            if (typeof TokenEditor !== 'undefined') {
+                var undoBar = $('undoBar');
+                if (undoBar) undoBar.style.display = 'flex';
+                TokenEditor._updateUndoButtons();
+            }
+            TokenHistory.init();
+            self.render();
 
-                var saveWithoutRing = $('saveWithoutRing');
-                var saveWithRing = $('saveWithRing');
-                if (saveWithoutRing) saveWithoutRing.disabled = false;
-                if (saveWithRing) saveWithRing.disabled = false;
+            if (typeof PortraitGenerator !== 'undefined' && PortraitGenerator.canvas) {
+                PortraitGenerator.onImageLoaded();
+            }
 
-                TokenEditor.updateNavState();
-            };
-            img.src = e.target.result;
+            var saveWithoutRing = $('saveWithoutRing');
+            var saveWithRing = $('saveWithRing');
+            if (saveWithoutRing) saveWithoutRing.disabled = false;
+            if (saveWithRing) saveWithRing.disabled = false;
+
+            TokenEditor.updateNavState();
         };
-        reader.readAsDataURL(file);
+        img.onerror = function() {
+            urlManager.revoke('userImage-decode');
+            toast('Не удалось прочитать изображение', true);
+        };
+        img.src = decodeUrl;
+    },
+
+    _capImage: function(img) {
+        var maxDim = CONFIG.MAX_IMAGE_DIM || 4096;
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        if (!w || !h || (w <= maxDim && h <= maxDim)) return img;
+        var ratio = Math.min(maxDim / w, maxDim / h);
+        var cw = Math.max(1, Math.round(w * ratio));
+        var ch = Math.max(1, Math.round(h * ratio));
+        var c = document.createElement('canvas');
+        c.width = cw;
+        c.height = ch;
+        var ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, cw, ch);
+        return c;
     },
 
     loadImageByPath: function(filePath) {
@@ -1434,6 +1520,7 @@ var TokenCanvas = {
         this._imageBrushCacheSize = -1;
         this._workerQueue = [];
         this._workerPending = false;
+        this._deferCC = false;
     },
     resetMask: function() {
         var maskCtx = state.maskCanvas.getContext('2d');

@@ -4,7 +4,6 @@ import json
 import subprocess
 import sys
 import time
-import base64
 import warnings
 import argparse
 import threading
@@ -42,7 +41,7 @@ RING_DIR = BASE_DIR / "token_rings"
 MASK_PATH = BASE_DIR / "mask.png"
 PRESET_DIR = BASE_DIR
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'}
 MAX_IMAGE_DIMENSION = 8192
 
 SESSION = None
@@ -61,6 +60,124 @@ def validate_image(image):
         new_size = (int(image.width * ratio), int(image.height * ratio))
         image = image.resize(new_size, Image.LANCZOS)
     return image
+
+
+def _enumerate_dxgi_adapters():
+    """Перечисляет DXGI-адаптеры через ctypes (без лишних зависимостей).
+    Возвращает [(device_id, description), ...]; device_id = индекс DXGI-адаптера,
+    он же device_id для DmlExecutionProvider."""
+    adapters = []
+    try:
+        import ctypes
+        from ctypes import wintypes, POINTER, byref, cast, Structure, c_void_p, c_uint, c_ulong, c_long, c_wchar, c_size_t, c_int64, WINFUNCTYPE
+
+        class GUID(Structure):
+            _fields_ = [
+                ("Data1", c_uint),
+                ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD),
+                ("Data4", ctypes.c_ubyte * 8),
+            ]
+
+        class DXGI_ADAPTER_DESC(Structure):
+            _fields_ = [
+                ("Description", c_wchar * 128),
+                ("VendorId", c_uint),
+                ("DeviceId", c_uint),
+                ("SubSysId", c_uint),
+                ("Revision", c_uint),
+                ("DedicatedVideoMemory", c_size_t),
+                ("DedicatedSystemMemory", c_size_t),
+                ("SharedSystemMemory", c_size_t),
+                ("AdapterLuid", c_int64),
+            ]
+
+        DXGI_ERROR_NOT_FOUND = 0x887A0027
+        # IID_IDXGIFactory: 7B7166EC-21C7-44AE-B21A-C9AE321AE369
+        # (CreateDXGIFactory1 на некоторых системах возвращает E_NOINTERFACE,
+        # поэтому используем IDXGIFactory — EnumAdapters у него тот же слот vtable)
+        IID_IDXGIFactory = GUID(0x7B7166EC, 0x21C7, 0x44AE,
+                                (ctypes.c_ubyte * 8)(0xB2, 0x1A, 0xC9, 0xAE, 0x32, 0x1A, 0xE3, 0x69))
+
+        dxgi = ctypes.WinDLL('dxgi.dll')
+        CreateDXGIFactory = dxgi.CreateDXGIFactory
+        CreateDXGIFactory.argtypes = [POINTER(GUID), POINTER(c_void_p)]
+        CreateDXGIFactory.restype = c_long
+
+        factory = c_void_p()
+        if CreateDXGIFactory(byref(IID_IDXGIFactory), byref(factory)) != 0 or not factory:
+            return []
+
+        EnumAdaptersFn = WINFUNCTYPE(c_long, c_void_p, c_uint, POINTER(c_void_p))
+        GetDescFn = WINFUNCTYPE(c_long, c_void_p, POINTER(DXGI_ADAPTER_DESC))
+        ReleaseFn = WINFUNCTYPE(c_ulong, c_void_p)
+
+        fvt = cast(factory, POINTER(POINTER(c_void_p))).contents
+        EnumAdapters = EnumAdaptersFn(fvt[3])  # IDXGIFactory::EnumAdapters
+
+        i = 0
+        while i < 32:
+            adapter = c_void_p()
+            hr = EnumAdapters(factory, i, byref(adapter))
+            if hr == DXGI_ERROR_NOT_FOUND:
+                break
+            if hr != 0 or not adapter:
+                i += 1
+                continue
+            avt = cast(adapter, POINTER(POINTER(c_void_p))).contents
+            desc = DXGI_ADAPTER_DESC()
+            if GetDescFn(avt[4])(adapter, byref(desc)) == 0:  # IDXGIAdapter::GetDesc
+                name = (desc.Description or '').strip()
+                if name:
+                    adapters.append((i, name))
+            ReleaseFn(avt[2])(adapter)
+            i += 1
+
+        ReleaseFn(fvt[2])(factory)
+    except Exception:
+        return []
+    return adapters
+
+
+def _classify_adapter(name):
+    """Классифицирует адаптер: 'discrete' | 'integrated' | 'virtual' | None."""
+    low = name.lower()
+    if any(k in low for k in ('microsoft', 'basic', 'remote', 'warp', 'parsec',
+                              'virtual', 'rdp', 'indirect', 'software', 'teamviewer', 'anydesk')):
+        return 'virtual'
+    if any(k in low for k in ('nvidia', 'geforce', 'rtx', 'gtx', 'quadro', 'tesla')):
+        return 'discrete'
+    if 'arc' in low:
+        return 'discrete'
+    if 'intel' in low:
+        return 'integrated'
+    if 'radeon' in low or 'amd' in low:
+        # Встроенные AMD заканчиваются на "Graphics" или содержат Vega/Ryzen/APU
+        if low.endswith('graphics') or 'vega' in low or 'ryzen' in low or 'apu' in low:
+            return 'integrated'
+        return 'discrete'
+    if 'graphics' in low or 'adreno' in low or 'mali' in low:
+        return 'integrated'
+    return None
+
+
+def _pick_discrete_adapter(adapter_list):
+    """Из списка [(idx, name)] выбирает дискретный GPU (минимальный индекс)."""
+    best = None
+    for idx, name in adapter_list:
+        if _classify_adapter(name) == 'discrete':
+            if best is None or idx < best[0]:
+                best = (idx, name)
+    return best if best else (None, None)
+
+
+def _detect_discrete_dml_adapter():
+    """Ищет дискретную видеокарту для DirectML (гибридные ноутбуки).
+    Возвращает (device_id, description) или (None, None) при неоднозначности."""
+    try:
+        return _pick_discrete_adapter(_enumerate_dxgi_adapters())
+    except Exception:
+        return (None, None)
 
 
 def get_providers():
@@ -150,8 +267,17 @@ def get_providers():
         return ['ROCMExecutionProvider', 'CPUExecutionProvider']
 
     if 'DmlExecutionProvider' in available and gpu_name:
-        DEVICE_NAME = f'DirectML ({gpu_name})'
         _PROVIDER_OPTIONS = device_options()
+        name_to_show = gpu_name
+        if not _PROVIDER_OPTIONS:
+            # На гибридных ноутбуках адаптер 0 может быть встроенной картой —
+            # ищем дискретную через DXGI и указываем её device_id напрямую.
+            dml_id, dml_name = _detect_discrete_dml_adapter()
+            if dml_id is not None:
+                _PROVIDER_OPTIONS = [{'device_id': dml_id}] + [{}] * (len(available) - 1)
+                name_to_show = dml_name
+                print(f"  Дискретная видеокарта: {dml_name} (адаптер #{dml_id})")
+        DEVICE_NAME = f'DirectML ({name_to_show})'
         return ['DmlExecutionProvider', 'CPUExecutionProvider']
 
     # Нет физической видеокарты: DirectML уйдёт на WARP (софт) — это медленнее CPU
@@ -170,7 +296,7 @@ except Exception:
 
 
 def load_session():
-    global SESSION, _PROVIDERS, DEVICE_NAME
+    global SESSION, _PROVIDERS, _PROVIDER_OPTIONS, DEVICE_NAME
     if SESSION is None:
         if not ONNX_PATH.exists():
             raise FileNotFoundError(f"Файл не найден: {ONNX_PATH}")
@@ -199,26 +325,44 @@ def load_session():
                 provider_options=_PROVIDER_OPTIONS
             )
         except Exception as e:
-            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-            print(f"  Оптимизация EXTENDED не загрузилась ({e})")
-            print("  Откат на BASIC...")
-            try:
-                SESSION = ort.InferenceSession(
-                    str(ONNX_PATH),
-                    sess_options=opts,
-                    providers=providers,
-                    provider_options=_PROVIDER_OPTIONS
-                )
-            except Exception:
-                if providers != ['CPUExecutionProvider']:
-                    print(f"  GPU-провайдер не запустился ({e})")
-                    print("  Откат на CPU...")
-                    DEVICE_NAME = 'CPU (fallback)'
-                SESSION = ort.InferenceSession(
-                    str(ONNX_PATH),
-                    sess_options=opts,
-                    providers=['CPUExecutionProvider']
-                )
+            # Авто-выбранный device_id мог не подойти (DML) — пробуем дефолтный адаптер,
+            # и только потом откатываемся на CPU.
+            if _PROVIDER_OPTIONS and providers != ['CPUExecutionProvider']:
+                try:
+                    print(f"  Адаптер #{_PROVIDER_OPTIONS[0].get('device_id')} не запустился ({e})")
+                    print("  Пробуем дефолтный адаптер...")
+                    SESSION = ort.InferenceSession(
+                        str(ONNX_PATH),
+                        sess_options=opts,
+                        providers=providers,
+                        provider_options=None
+                    )
+                    _PROVIDER_OPTIONS = None
+                    print("  Дефолтный адаптер работает.")
+                except Exception:
+                    SESSION = None
+
+            if SESSION is None:
+                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+                print(f"  Оптимизация EXTENDED не загрузилась ({e})")
+                print("  Откат на BASIC...")
+                try:
+                    SESSION = ort.InferenceSession(
+                        str(ONNX_PATH),
+                        sess_options=opts,
+                        providers=providers,
+                        provider_options=_PROVIDER_OPTIONS
+                    )
+                except Exception:
+                    if providers != ['CPUExecutionProvider']:
+                        print(f"  GPU-провайдер не запустился ({e})")
+                        print("  Откат на CPU...")
+                        DEVICE_NAME = 'CPU (fallback)'
+                    SESSION = ort.InferenceSession(
+                        str(ONNX_PATH),
+                        sess_options=opts,
+                        providers=['CPUExecutionProvider']
+                    )
 
         print(f" Прогрев модели...")
         warmup_time = None
@@ -243,7 +387,9 @@ def load_session():
 def _spawn_tune_child():
     """Запускает подбор адаптера DirectML в ОТДЕЛЬНОМ процессе (--tune-gpu).
     Параллельные DML-сессии в одном процессе ломают основной инференс
-    (баг onnxruntime-directml: ExecuteKernel 80070057), поэтому изолируем пробу."""
+    (баг onnxruntime-directml: ExecuteKernel 80070057), поэтому изолируем пробу.
+    Запуск отложен на 15 с и с пониженным приоритетом, чтобы не конкурировать
+    с приложением за GPU/CPU на слабых ноутбуках."""
     try:
         if 'DmlExecutionProvider' not in _PROVIDERS or _PROVIDER_OPTIONS:
             return
@@ -251,12 +397,19 @@ def _spawn_tune_child():
         cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
         if isinstance(cfg.get('gpu_device_id'), int):
             return
-        if getattr(sys, 'frozen', False):
-            args = [sys.executable, '--tune-gpu']
-        else:
-            args = [sys.executable, str(BASE_DIR / 'server.py'), '--tune-gpu']
-        subprocess.Popen(args, creationflags=0x08000000, close_fds=True)
-        print(" Запущен фоновый подбор адаптера DirectML (отдельный процесс)...")
+
+        def _spawn():
+            if getattr(sys, 'frozen', False):
+                args = [sys.executable, '--tune-gpu']
+            else:
+                args = [sys.executable, str(BASE_DIR / 'server.py'), '--tune-gpu']
+            # 0x08000000 = CREATE_NO_WINDOW, 0x00004000 = BELOW_NORMAL_PRIORITY_CLASS
+            subprocess.Popen(args, creationflags=0x08000000 | 0x00004000, close_fds=True)
+            print(" Запущен фоновый подбор адаптера DirectML (отдельный процесс)...")
+
+        t = threading.Timer(5.0, _spawn)
+        t.daemon = True
+        t.start()
     except Exception as e:
         print(f" Не удалось запустить подбор адаптера: {e}")
 
@@ -296,9 +449,14 @@ def cli_tune_gpu():
         default_t = bench(None)
         print(f"  [tune] дефолтный адаптер: {default_t:.2f} с")
         best_id, best_time = None, None
-        # Адаптеры 0-1: реальные кандидаты (iGPU + дискретная). 2+ обычно WARP/виртуальный —
-        # он заведомо медленнее.
-        for did in range(2):
+        # Тестируем столько адаптеров, сколько реально есть (но не больше 4),
+        # чтобы дискретная карта на гибридных ноутбуках не оказалась за пределами списка.
+        try:
+            adapter_count = len(_enumerate_dxgi_adapters())
+        except Exception:
+            adapter_count = 2
+        limit = max(2, min(adapter_count, 4))
+        for did in range(limit):
             try:
                 dt = bench(did)
                 print(f"  [tune] адаптер #{did}: {dt:.2f} с")
@@ -321,8 +479,18 @@ def cli_tune_gpu():
         print(f"  [tune] ошибка: {e}")
 
 
-def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
-    mask_np = np.array(mask_pil).astype(np.float32) / 255.0
+def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245, work_size=1024, target_size=None):
+    """Маска рефайнится на уменьшенной копии (work_size), чтобы не жечь RAM на больших картинках.
+    Результат возвращается в размере target_size (или в исходном размере маски)."""
+    orig_size = target_size or mask_pil.size
+    w, h = orig_size
+    if work_size and max(w, h) > work_size:
+        ratio = work_size / max(w, h)
+        work = mask_pil.resize((max(1, int(w * ratio)), max(1, int(h * ratio))), Image.BILINEAR)
+    else:
+        work = mask_pil
+
+    mask_np = np.array(work).astype(np.float32) / 255.0
 
     low = threshold_low / 255.0
     high = threshold_high / 255.0
@@ -341,6 +509,9 @@ def refine_mask(mask_pil, edge_blur=1, threshold_low=10, threshold_high=245):
     if edge_blur > 0:
         mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(edge_blur * 0.35))
 
+    if mask_pil.size != orig_size:
+        mask_pil = mask_pil.resize(orig_size, Image.LANCZOS)
+
     return mask_pil
 
 
@@ -352,7 +523,6 @@ def remove_background(image, edge_blur=1):
         return proc.memory_info().rss / 1024 / 1024
 
     session = load_session()
-    orig_size = image.size
     print(f"  [RAM] старт обработки: {mem():.0f} МБ | размер входа: {image.size}")
 
     if image.mode != 'RGB':
@@ -404,23 +574,32 @@ def remove_background(image, edge_blur=1):
     del mask
     gc.collect()
 
-    mask_pil = mask_pil.resize(orig_size, Image.LANCZOS)
-    mask_pil = refine_mask(mask_pil, edge_blur)
+    mask_pil = refine_mask(mask_pil, edge_blur, target_size=image.size)
 
     result = image.convert('RGBA')
     rgba_np = np.array(result)
     alpha_np = np.array(mask_pil)
 
-    white_penalty = (rgba_np[:, :, 0].astype(np.float32) * 0.299 +
-                     rgba_np[:, :, 1].astype(np.float32) * 0.587 +
-                     rgba_np[:, :, 2].astype(np.float32) * 0.114)
-    alpha_f = alpha_np.astype(np.float32)
-    suppress = (white_penalty > 220) & (alpha_f < 180)
-    alpha_f[suppress] = np.maximum(0, alpha_f[suppress] - (white_penalty[suppress] - 220) * 3.5)
-    rgba_np[:, :, 3] = np.clip(alpha_f, 0, 255).astype(np.uint8)
+    # White-penalty считается на уменьшенной копии (1024), поправка затем масштабируется.
+    # На 8K-исходнике это экономит ~1 ГБ транзитных float32-массивов.
+    small = image.convert('RGB').resize((1024, 1024), Image.BILINEAR)
+    small_arr = np.array(small, dtype=np.float32)
+    del small
+    wp = (small_arr[:, :, 0] * 0.299 + small_arr[:, :, 1] * 0.587 + small_arr[:, :, 2] * 0.114)
+    alpha_small = np.array(mask_pil.resize((1024, 1024), Image.BILINEAR)).astype(np.float32)
+    suppress = (wp > 220) & (alpha_small < 180)
+    corr = np.zeros_like(wp)
+    corr[suppress] = np.minimum((wp[suppress] - 220) * 3.5, 255.0)
+    corr_img = Image.fromarray(corr.astype(np.uint8)).resize(result.size, Image.BILINEAR)
+    del small_arr, wp, alpha_small, corr
+
+    alpha16 = alpha_np.astype(np.int16)
+    alpha16 -= np.array(corr_img).astype(np.int16)
+    np.clip(alpha16, 0, 255, out=alpha16)
+    rgba_np[:, :, 3] = alpha16.astype(np.uint8)
 
     result = Image.fromarray(rgba_np, mode='RGBA')
-    del rgba_np, alpha_np, mask_pil
+    del rgba_np, alpha_np, mask_pil, alpha16, corr_img
     gc.collect()
 
     print(f"  [RAM] финал: {mem():.0f} МБ")
@@ -432,6 +611,9 @@ def save_image(image, format_type, quality=90):
     if format_type == 'webp':
         image.save(buffer, format='WEBP', quality=quality, lossless=False)
         mime = 'image/webp'
+    elif format_type == 'avif':
+        image.save(buffer, format='AVIF', quality=quality)
+        mime = 'image/avif'
     elif format_type == 'png':
         image.save(buffer, format='PNG', optimize=True, compress_level=6)
         mime = 'image/png'
@@ -503,9 +685,17 @@ class FaceDetector:
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ──────────────────────────────────────────────
 
-def find_character_bounds(pil_image, threshold=15):
-    """Находит bbox не-фонового содержимого"""
-    arr = np.array(pil_image.convert('RGBA'))
+def find_character_bounds(pil_image, threshold=15, work_max=1024):
+    """Находит bbox не-фонового содержимого. Считается на уменьшенной копии (work_max),
+    координаты возвращаются в координатах исходника."""
+    ow, oh = pil_image.size
+    ratio = 1.0
+    work = pil_image
+    if max(ow, oh) > work_max:
+        ratio = work_max / max(ow, oh)
+        work = pil_image.resize((max(1, int(ow * ratio)), max(1, int(oh * ratio))), Image.BILINEAR)
+
+    arr = np.array(work.convert('RGBA'))
     alpha = arr[:, :, 3]
     if alpha.max() < 200:
         gray = np.mean(arr[:, :, :3], axis=2)
@@ -515,11 +705,11 @@ def find_character_bounds(pil_image, threshold=15):
     rows = np.any(mask, axis=1)
     cols = np.any(mask, axis=0)
     if not rows.any():
-        return 0, 0, pil_image.width, pil_image.height
-    top    = int(np.argmax(rows))
-    bottom = int(len(rows) - np.argmax(rows[::-1]) - 1)
-    left   = int(np.argmax(cols))
-    right  = int(len(cols) - np.argmax(cols[::-1]) - 1)
+        return 0, 0, ow, oh
+    top    = int(np.argmax(rows) / ratio)
+    bottom = int((len(rows) - np.argmax(rows[::-1]) - 1) / ratio)
+    left   = int(np.argmax(cols) / ratio)
+    right  = int((len(cols) - np.argmax(cols[::-1]) - 1) / ratio)
     return left, top, right, bottom
 
 
@@ -746,7 +936,7 @@ def preset_file(filename):
     if not path.exists() or not path.is_file():
         return jsonify({'error': 'Not found'}), 404
     ext = path.suffix.lower()
-    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.avif': 'image/avif'}
     mime = mime_map.get(ext, 'image/octet-stream')
     response = send_file(str(path), mimetype=mime)
     response.headers['Cache-Control'] = 'public, max-age=86400'
@@ -919,7 +1109,7 @@ def process():
         return jsonify({'error': 'Недопустимый формат файла'}), 400
 
     format_type = request.form.get('format', 'webp')
-    if format_type not in ('webp', 'png', 'jpg'):
+    if format_type not in ('webp', 'png', 'jpg', 'avif'):
         format_type = 'webp'
     try:
         quality = min(100, max(10, int(request.form.get('quality', 90))))
@@ -959,7 +1149,7 @@ def convert_file():
     file = request.files['image']
 
     format_type = request.form.get('format', 'webp')
-    if format_type not in ('webp', 'png', 'jpg', 'bmp', 'gif', 'tiff'):
+    if format_type not in ('webp', 'png', 'jpg', 'avif', 'bmp', 'gif', 'tiff'):
         format_type = 'webp'
     try:
         quality = min(100, max(10, int(request.form.get('quality', 90))))
@@ -1026,7 +1216,7 @@ def create_token():
         return jsonify({'error': 'Недопустимый формат файла'}), 400
 
     format_type = request.form.get('format', 'webp')
-    if format_type not in ('webp', 'png', 'jpg'):
+    if format_type not in ('webp', 'png', 'jpg', 'avif'):
         format_type = 'webp'
     try:
         quality = min(100, max(10, int(request.form.get('quality', 90))))
@@ -1164,7 +1354,7 @@ def save_file():
 
     suggested = request.form.get('filename', 'file.webp')
     ext = suggested.rsplit('.', 1)[-1].lower() if '.' in suggested else 'webp'
-    mime_map = {'webp': 'WebP Image', 'png': 'PNG Image', 'jpg': 'JPEG Image'}
+    mime_map = {'webp': 'WebP Image', 'png': 'PNG Image', 'jpg': 'JPEG Image', 'avif': 'AVIF Image'}
     label = mime_map.get(ext, 'File')
 
     if 'file' not in request.files:
@@ -1249,16 +1439,12 @@ def pick_image_to_open():
 
     path_obj = Path(path)
     ext = path_obj.suffix.lower()
-    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.avif': 'image/avif'}
     mime = mime_map.get(ext, 'image/octet-stream')
-
-    with open(path_obj, 'rb') as f:
-        b64 = base64.b64encode(f.read()).decode('utf-8')
 
     return jsonify({
         'path': str(path_obj.resolve()),
-        'mime': mime,
-        'data': b64
+        'mime': mime
     })
 
 
@@ -1303,7 +1489,7 @@ def get_image_by_path():
     if not path.exists() or not path.is_file():
         return jsonify({'error': 'File not found'}), 404
     ext = path.suffix.lower()
-    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+    mime_map = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.avif': 'image/avif'}
     mime = mime_map.get(ext, 'image/octet-stream')
     return send_file(str(path), mimetype=mime)
 

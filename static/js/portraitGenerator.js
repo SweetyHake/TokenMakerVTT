@@ -15,6 +15,16 @@ const PortraitGenerator = {
     dragStartImgX: 0,
     dragStartImgY: 0,
 
+    _renderRafId: null,
+
+    requestRender() {
+        if (this._renderRafId) return;
+        this._renderRafId = requestAnimationFrame(() => {
+            this._renderRafId = null;
+            this.render();
+        });
+    },
+
     saveFolder: null,
 
     init() {
@@ -63,7 +73,7 @@ const PortraitGenerator = {
             scaleSlider.oninput = e => {
                 this.imageScale = parseInt(e.target.value) / 100;
                 if (scaleInput) scaleInput.value = e.target.value;
-                this.render();
+                this.requestRender();
             };
             scaleSlider.addEventListener('wheel', ev => {
                 ev.preventDefault();
@@ -88,7 +98,7 @@ const PortraitGenerator = {
             rotSlider.oninput = e => {
                 this.imageRotation = parseInt(e.target.value);
                 if (rotInput) rotInput.value = e.target.value;
-                this.render();
+                this.requestRender();
             };
             rotSlider.addEventListener('wheel', ev => {
                 ev.preventDefault();
@@ -128,7 +138,7 @@ const PortraitGenerator = {
             const ratio = this.SIZE / displaySide;
             this.imageX = this.dragStartImgX + (e.clientX - this.dragStartX) * ratio;
             this.imageY = this.dragStartImgY + (e.clientY - this.dragStartY) * ratio;
-            this.render();
+            this.requestRender();
         });
 
         window.addEventListener('mouseup', () => {
@@ -146,7 +156,7 @@ const PortraitGenerator = {
             this.imageScale = newVal / 100;
             if (scaleSlider) scaleSlider.value = newVal;
             if (scaleInput) scaleInput.value = newVal;
-            this.render();
+            this.requestRender();
         }, { passive: false });
 
         c.addEventListener('contextmenu', e => e.preventDefault());

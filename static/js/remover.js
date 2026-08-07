@@ -112,30 +112,29 @@ const Remover = {
     setupCompareModal() {
         const closeCompare = $('closeCompare');
         if (closeCompare) {
-            closeCompare.onclick = () => {
-                $('compareModal').classList.remove('show');
-                if (this._compareMouseMove) {
-                    document.removeEventListener('mousemove', this._compareMouseMove);
-                    document.removeEventListener('mouseup', this._compareMouseUp);
-                    this._compareMouseMove = null;
-                    this._compareMouseUp = null;
-                }
-            };
+            closeCompare.onclick = () => this._closeCompareModal();
         }
 
         const compareModal = $('compareModal');
         if (compareModal) {
             compareModal.onclick = e => {
-                if (e.target === compareModal) {
-                    compareModal.classList.remove('show');
-                    if (this._compareMouseMove) {
-                        document.removeEventListener('mousemove', this._compareMouseMove);
-                        document.removeEventListener('mouseup', this._compareMouseUp);
-                        this._compareMouseMove = null;
-                        this._compareMouseUp = null;
-                    }
-                }
+                if (e.target === compareModal) this._closeCompareModal();
             };
+        }
+    },
+
+    _closeCompareModal() {
+        const modal = $('compareModal');
+        if (modal) modal.classList.remove('show');
+        if (this._compareId) {
+            urlManager.revoke(this._compareId + '_compare');
+            this._compareId = null;
+        }
+        if (this._compareMouseMove) {
+            document.removeEventListener('mousemove', this._compareMouseMove);
+            document.removeEventListener('mouseup', this._compareMouseUp);
+            this._compareMouseMove = null;
+            this._compareMouseUp = null;
         }
     },
     
@@ -162,52 +161,49 @@ const Remover = {
         card.className = 'result-card';
         card.id = id;
 
-        const reader = new FileReader();
-        reader.onload = e => {
-            state.originalImages.set(id, e.target.result);
+        const origUrl = urlManager.create(file, id + '_src');
+        state.originalImages.set(id, origUrl);
 
-            const preview = document.createElement('div');
-            preview.className = 'result-preview';
+        const preview = document.createElement('div');
+        preview.className = 'result-preview';
 
-            const img = document.createElement('img');
-            img.src = e.target.result;
-            img.alt = '';
+        const img = document.createElement('img');
+        img.src = origUrl;
+        img.alt = '';
 
-            const overlay = document.createElement('div');
-            overlay.className = 'loading-overlay';
+        const overlay = document.createElement('div');
+        overlay.className = 'loading-overlay';
 
-            const spinner = document.createElement('div');
-            spinner.className = 'spinner';
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
 
-            const label = document.createElement('div');
-            label.style.cssText = 'font-size: 0.7rem; color: #9ca3af;';
-            label.textContent = 'Обработка...';
+        const label = document.createElement('div');
+        label.style.cssText = 'font-size: 0.7rem; color: #9ca3af;';
+        label.textContent = 'Обработка...';
 
-            overlay.appendChild(spinner);
-            overlay.appendChild(label);
-            preview.appendChild(img);
-            preview.appendChild(overlay);
+        overlay.appendChild(spinner);
+        overlay.appendChild(label);
+        preview.appendChild(img);
+        preview.appendChild(overlay);
 
-            const safeName = file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const info = document.createElement('div');
-            info.className = 'result-info';
+        const safeName = file.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const info = document.createElement('div');
+        info.className = 'result-info';
 
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'result-name';
-            nameSpan.dataset.tooltip = safeName;
-            nameSpan.textContent = file.name;
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'result-name';
+        nameSpan.dataset.tooltip = safeName;
+        nameSpan.textContent = file.name;
 
-            const dlBtn = document.createElement('button');
-            dlBtn.className = 'download-btn';
-            dlBtn.disabled = true;
-            dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'download-btn';
+        dlBtn.disabled = true;
+        dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
 
-            info.appendChild(nameSpan);
-            info.appendChild(dlBtn);
-            card.appendChild(preview);
-            card.appendChild(info);
-        };
-        reader.readAsDataURL(file);
+        info.appendChild(nameSpan);
+        info.appendChild(dlBtn);
+        card.appendChild(preview);
+        card.appendChild(info);
 
         $('resultsGrid').insertBefore(card, $('resultsGrid').firstChild);
     },
@@ -276,6 +272,7 @@ const Remover = {
                 state.results.delete(oldestKey);
                 state.originalImages.delete(oldestKey);
                 urlManager.revoke(oldestKey);
+                urlManager.revoke(oldestKey + '_src');
                 var oldestCard = $(oldestKey);
                 if (oldestCard) oldestCard.remove();
                 this.updateResultsCount();
@@ -365,13 +362,15 @@ const Remover = {
         const original = state.originalImages.get(id);
         const result = state.results.get(id);
         if (!original || !result) return;
-        
+
+        if (this._compareId) urlManager.revoke(this._compareId + '_compare');
         const resultUrl = urlManager.create(result.blob, id + '_compare');
-        
+        this._compareId = id;
+
         $('compareBefore').style.backgroundImage = `url(${original})`;
         $('compareAfter').style.backgroundImage = `url(${resultUrl})`;
         $('compareModal').classList.add('show');
-        
+
         this.initCompareSlider();
     },
     

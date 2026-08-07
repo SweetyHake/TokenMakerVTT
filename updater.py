@@ -114,11 +114,16 @@ def _touch_throttle_file():
 
 
 def _find_exe_asset(assets):
-    """Find the first .exe asset whose name contains APP_NAME."""
+    """Ищет .exe-ассет приложения для автообновления.
+    Установщики (Inno Setup, имя содержит 'setup') пропускаются: их нельзя
+    копировать поверх exe приложения — пользователь обновляется вручную."""
     for asset in assets:
         name = asset.get("name", "")
-        if name.endswith(".exe") and APP_NAME.lower() in name.lower():
-            return asset.get("browser_download_url")
+        if name.lower().endswith(".exe"):
+            if "setup" in name.lower() or "installer" in name.lower():
+                continue
+            if APP_NAME.lower() in name.lower():
+                return asset.get("browser_download_url")
     return None
 
 
@@ -167,9 +172,13 @@ def download_update():
         if not url:
             raise ValueError("No download URL")
 
-        ext = Path(url.split("?")[0]).suffix or ".exe"
-        if ext != ".exe":
-            raise ValueError(f"Unsupported asset type: {ext}")
+        clean = url.split("?")[0]
+        if clean.endswith(".exe"):
+            ext = ".exe"
+        else:
+            # Ассета с exe приложения нет (например, в релизе только установщик) —
+            # автообновление невозможно, пользователь обновляется вручную с GitHub.
+            raise ValueError("Автообновление недоступно: в релизе нет exe-файла приложения. Скачайте установщик вручную с GitHub Releases")
 
         dest = BASE_DIR / f"{APP_NAME}_new{ext}"
 

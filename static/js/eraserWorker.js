@@ -6,17 +6,22 @@ self.onmessage = function(e) {
     var brush = new Uint8ClampedArray(data.brushData);
     var prot = data.protData ? new Uint8ClampedArray(data.protData) : null;
 
+    var regionX = data.regionX;
+    var regionY = data.regionY;
+    var regionW = data.regionWidth;
+    var regionH = data.regionHeight;
+
     for (var by = 0; by < data.brushHeight; by++) {
         var my = data.drawY + by;
-        if (my < 0 || my >= data.maskHeight) continue;
+        if (my < regionY || my >= regionY + regionH) continue;
         for (var bx = 0; bx < data.brushWidth; bx++) {
             var mx = data.drawX + bx;
-            if (mx < 0 || mx >= data.maskWidth) continue;
+            if (mx < regionX || mx >= regionX + regionW) continue;
 
             var brushAlpha = brush[(by * data.brushWidth + bx) * 4 + 3] / 255;
             if (brushAlpha <= 0) continue;
 
-            var maskIdx = (my * data.maskWidth + mx) * 4 + 3;
+            var maskIdx = ((my - regionY) * regionW + (mx - regionX)) * 4 + 3;
 
             if (prot) {
                 var protIdx = (by * data.brushWidth + bx) * 4 + 3;
@@ -31,5 +36,13 @@ self.onmessage = function(e) {
         }
     }
 
-    self.postMessage({ type: 'brushDone', id: data.id, maskData: mask.buffer }, [mask.buffer]);
+    self.postMessage({
+        type: 'brushDone',
+        id: data.id,
+        maskData: mask.buffer,
+        regionX: regionX,
+        regionY: regionY,
+        regionWidth: regionW,
+        regionHeight: regionH
+    }, [mask.buffer]);
 };

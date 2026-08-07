@@ -99,51 +99,49 @@ const Converter = {
         card.className = 'result-card';
         card.id = id;
 
-        const reader = new FileReader();
-        reader.onload = e => {
-            this.originalNames.set(id, file.name);
+        this.originalNames.set(id, file.name);
 
-            const preview = document.createElement('div');
-            preview.className = 'result-preview';
+        const origUrl = urlManager.create(file, id + '_src');
 
-            const img = document.createElement('img');
-            img.src = e.target.result;
-            img.alt = '';
+        const preview = document.createElement('div');
+        preview.className = 'result-preview';
 
-            const overlay = document.createElement('div');
-            overlay.className = 'loading-overlay';
+        const img = document.createElement('img');
+        img.src = origUrl;
+        img.alt = '';
 
-            const spinner = document.createElement('div');
-            spinner.className = 'spinner';
+        const overlay = document.createElement('div');
+        overlay.className = 'loading-overlay';
 
-            const label = document.createElement('div');
-            label.style.cssText = 'font-size: 0.7rem; color: #9ca3af;';
-            label.textContent = 'Конвертация...';
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
 
-            overlay.appendChild(spinner);
-            overlay.appendChild(label);
-            preview.appendChild(img);
-            preview.appendChild(overlay);
+        const label = document.createElement('div');
+        label.style.cssText = 'font-size: 0.7rem; color: #9ca3af;';
+        label.textContent = 'Конвертация...';
 
-            const info = document.createElement('div');
-            info.className = 'result-info';
+        overlay.appendChild(spinner);
+        overlay.appendChild(label);
+        preview.appendChild(img);
+        preview.appendChild(overlay);
 
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'result-name';
-            nameSpan.dataset.tooltip = file.name;
-            nameSpan.textContent = file.name;
+        const info = document.createElement('div');
+        info.className = 'result-info';
 
-            const dlBtn = document.createElement('button');
-            dlBtn.className = 'download-btn';
-            dlBtn.disabled = true;
-            dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'result-name';
+        nameSpan.dataset.tooltip = file.name;
+        nameSpan.textContent = file.name;
 
-            info.appendChild(nameSpan);
-            info.appendChild(dlBtn);
-            card.appendChild(preview);
-            card.appendChild(info);
-        };
-        reader.readAsDataURL(file);
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'download-btn';
+        dlBtn.disabled = true;
+        dlBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
+
+        info.appendChild(nameSpan);
+        info.appendChild(dlBtn);
+        card.appendChild(preview);
+        card.appendChild(info);
 
         $('convResultsGrid').insertBefore(card, $('convResultsGrid').firstChild);
     },
