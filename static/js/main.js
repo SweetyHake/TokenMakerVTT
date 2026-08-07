@@ -371,9 +371,9 @@ function pollAboutUpdate(retries) {
     fetch('/update_status').then(r => r.json()).then(d => {
         const actions = $('aboutUpdateActions');
         if (d.download_done) {
-            aboutUpdateSetStatus('Обновление <b>' + (d.update_tag || '') + '</b> скачано! Перезапустить приложение?');
+            aboutUpdateSetStatus('Обновление <b>' + (d.update_tag || '') + '</b> скачано! Установить сейчас?');
             if (actions) actions.innerHTML =
-                '<button class="accent-btn accent-btn-compact" onclick="applyAboutUpdate()">Перезапустить</button>' +
+                '<button class="accent-btn accent-btn-compact" onclick="applyAboutUpdate()">Установить</button>' +
                 '<button class="about-link" onclick="hideAboutUpdate()">Позже</button>';
             return;
         }
@@ -435,7 +435,7 @@ function startAboutDownload() {
 }
 
 function applyAboutUpdate() {
-    aboutUpdateSetStatus('Перезапуск...');
+    aboutUpdateSetStatus('Установка обновления... Приложение закроется');
     const actions = $('aboutUpdateActions');
     if (actions) actions.innerHTML = '';
     fetch('/apply_update', { method: 'POST' }).catch(() => {});

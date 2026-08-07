@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from threading import Lock, Thread
@@ -37,6 +39,7 @@ class _UpdateState:
         self.download_done = False
         self.download_error = None
         self.download_path = None
+        self.download_kind = None
 
     def snapshot(self):
         with self.lock:
@@ -50,6 +53,7 @@ class _UpdateState:
                 "download_done": self.download_done,
                 "download_error": self.download_error,
                 "download_path": self.download_path,
+                "download_kind": self.download_kind,
             }
 
     def complete_check(self, available, url=None, tag=None):
@@ -66,6 +70,10 @@ class _UpdateState:
     def set_download_progress(self, pct):
         with self.lock:
             self.download_progress = pct
+
+    def set_download_kind(self, kind):
+        with self.lock:
+            self.download_kind = kind
 
     def complete_download(self, error=None, path=None):
         with self.lock:
@@ -113,18 +121,36 @@ def _touch_throttle_file():
         pass
 
 
+def _update_dir():
+    """Каталог для скачанных обновлений (LOCALAPPDATA — в Program Files запись запрещена)."""
+    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    d = Path(base) / "TokenMaker" / "update"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = Path(tempfile.gettempdir()) / "TokenMaker_update"
+        d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _find_exe_asset(assets):
-    """Ищет .exe-ассет приложения для автообновления.
-    Установщики (Inno Setup, имя содержит 'setup') пропускаются: их нельзя
-    копировать поверх exe приложения — пользователь обновляется вручную."""
+    """Лучший .exe-ассет для автообновления.
+    Приоритет: голый TokenMaker.exe (копируется поверх exe приложения).
+    Если его нет — установщик Inno Setup (TokenMaker_Setup_v*.exe):
+    приложение запускает его в тихом режиме (/SILENT)."""
+    setup_asset = None
     for asset in assets:
         name = asset.get("name", "")
-        if name.lower().endswith(".exe"):
-            if "setup" in name.lower() or "installer" in name.lower():
-                continue
-            if APP_NAME.lower() in name.lower():
-                return asset.get("browser_download_url")
-    return None
+        if not name.lower().endswith(".exe"):
+            continue
+        if APP_NAME.lower() not in name.lower():
+            continue
+        if "setup" in name.lower() or "installer" in name.lower():
+            if setup_asset is None:
+                setup_asset = asset.get("browser_download_url")
+            continue
+        return asset.get("browser_download_url")
+    return setup_asset
 
 
 def check_for_updates(force=False):
@@ -173,14 +199,19 @@ def download_update():
             raise ValueError("No download URL")
 
         clean = url.split("?")[0]
-        if clean.endswith(".exe"):
-            ext = ".exe"
-        else:
-            # Ассета с exe приложения нет (например, в релизе только установщик) —
-            # автообновление невозможно, пользователь обновляется вручную с GitHub.
-            raise ValueError("Автообновление недоступно: в релизе нет exe-файла приложения. Скачайте установщик вручную с GitHub Releases")
+        if not clean.endswith(".exe"):
+            raise ValueError("Автообновление недоступно: нет exe-файла приложения. Скачайте установщик вручную с GitHub Releases")
 
-        dest = BASE_DIR / f"{APP_NAME}_new{ext}"
+        kind = "installer" if ("setup" in Path(clean).name.lower() or "installer" in Path(clean).name.lower()) else "bare"
+        _state.set_download_kind(kind)
+
+        upd_dir = _update_dir()
+        for old in upd_dir.glob("TokenMaker_update*"):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        dest = upd_dir / "TokenMaker_update.exe"
 
         req = Request(url)
         req.add_header("User-Agent", f"{APP_NAME}/{__version__}")

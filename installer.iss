@@ -2,7 +2,7 @@
 ; Install Inno Setup from https://jrsoftware.org/isdl.php first
 
 #define MyAppName "Token Maker"
-#define MyAppVersion "1.0.7"
+#define MyAppVersion "1.0.8"
 #define MyAppPublisher "SweetyHake"
 #define MyAppURL "https://github.com/SweetyHake/TokenMakerVTT"
 #define MyAppExeName "TokenMaker.exe"
@@ -47,8 +47,10 @@ begin
 end;
 
 [Run]
-Filename: "{cmd}"; Parameters: "/C python -m pip install numpy Pillow flask pywebview psutil --quiet"; StatusMsg: "Installing Python packages..."; Flags: runhidden; Check: IsPythonInstalled
-Filename: "{cmd}"; Parameters: "/C python -m pip install onnxruntime-directml --quiet || python -m pip install onnxruntime --quiet"; StatusMsg: "Installing AI backend..."; Flags: runhidden; Check: IsPythonInstalled
+; При тихой установке (/SILENT — автообновление из приложения) pip-шаги пропускаются:
+; пакеты не нужны замороженному exe, а тянуть их на каждом апдейте долго.
+Filename: "{cmd}"; Parameters: "/C python -m pip install numpy Pillow flask pywebview psutil --quiet"; StatusMsg: "Installing Python packages..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilent()
+Filename: "{cmd}"; Parameters: "/C python -m pip install onnxruntime-directml --quiet || python -m pip install onnxruntime --quiet"; StatusMsg: "Installing AI backend..."; Flags: runhidden; Check: IsPythonInstalled and not IsSilent()
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 

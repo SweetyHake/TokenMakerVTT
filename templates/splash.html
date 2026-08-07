@@ -115,10 +115,10 @@ function pollDownload() {
         }
         id('spinner').style.display = 'none';
         id('status').innerHTML =
-            'Обновление <span class="accent">' + (d.update_tag || '') + '</span> скачано!<br>Перезапустить приложение?';
+            'Обновление <span class="accent">' + (d.update_tag || '') + '</span> скачано!<br>Установить сейчас?';
         id('actions').style.display = 'flex';
         id('actions').innerHTML =
-            '<button class="btn btn-primary" onclick="applyRestart()">Перезапустить</button>' +
+            '<button class="btn btn-primary" onclick="applyRestart()">Установить</button>' +
             '<button class="btn" onclick="go()">Позже</button>';
     }).catch(function() {
         setTimeout(pollDownload, 500);
@@ -126,7 +126,7 @@ function pollDownload() {
 }
 
 function applyRestart() {
-    id('status').innerHTML = 'Перезапуск...';
+    id('status').innerHTML = 'Установка обновления...';
     id('actions').style.display = 'none';
     id('spinner').style.display = '';
     fetch('/apply_update', { method: 'POST' }).then(function() {

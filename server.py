@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import io
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import time
 import warnings
 import argparse
@@ -12,7 +14,6 @@ from pathlib import Path
 from flask import Flask, request, render_template, jsonify, send_file, current_app
 from PIL import Image, ImageFilter, ImageDraw
 import onnxruntime as ort
-import os
 from version import __version__, APP_NAME, GITHUB_REPO
 from updater import (
     get_status as updater_status,
@@ -998,43 +999,81 @@ def apply_update():
     try:
         s = updater_status()
         src = s.get('download_path', '')
-        if not src:
+        kind = s.get('download_kind', 'bare')
+        if not src or not os.path.exists(src):
             return jsonify({'error': 'No update file'}), 400
 
         dst = sys.executable if getattr(sys, 'frozen', False) else str(BASE_DIR / 'TokenMaker.exe')
         exe_name = os.path.basename(dst)
+        dst_dir = os.path.dirname(dst)
 
-        bat = BASE_DIR / '_update.bat'
-        bat.write_text(
-            '@echo off\r\n'
-            'setlocal\r\n'
-            'set "SRC={src}"\r\n'
-            'set "DST={dst}"\r\n'
-            'set "EXE={exe_name}"\r\n'
-            'set /a tries=0\r\n'
-            ':waitloop\r\n'
-            'tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul\r\n'
-            'if errorlevel 1 goto copy\r\n'
-            'set /a tries+=1\r\n'
-            'if %tries% geq 30 (\r\n'
-            '    taskkill /F /IM "%EXE%" >nul 2>&1\r\n'
-            '    goto copy\r\n'
-            ')\r\n'
-            'ping 127.0.0.1 -n 2 > nul\r\n'
-            'goto waitloop\r\n'
-            ':copy\r\n'
-            'copy /Y "%SRC%" "%DST%" >nul 2>&1\r\n'
-            'if not exist "%DST%" goto fail\r\n'
-            'if exist "%SRC%" del "%SRC%" >nul 2>&1\r\n'
-            'start "" /D "%~dp0" "%DST%" >nul 2>&1\r\n'
-            'del "%~f0" >nul 2>&1\r\n'
-            'exit /b 0\r\n'
-            ':fail\r\n'
-            'if exist "%SRC%" del "%SRC%" >nul 2>&1\r\n'
-            'del "%~f0" >nul 2>&1\r\n'
-            'exit /b 1\r\n',
-            encoding='cp866', errors='replace'
-        )
+        # bat пишем в LOCALAPPDATA: в Program Files запись запрещена
+        upd_dir = Path(os.environ.get('LOCALAPPDATA', tempfile.gettempdir())) / 'TokenMaker' / 'update'
+        upd_dir.mkdir(parents=True, exist_ok=True)
+        bat = upd_dir / '_update.bat'
+
+        if kind == 'installer':
+            # Установщик: дождаться выхода приложения, тихая установка (/SILENT),
+            # перезапуск. UAC-запрос покажет сам установщик.
+            lines = [
+                '@echo off',
+                'setlocal',
+                f'set "SRC={src}"',
+                f'set "DST={dst}"',
+                f'set "DSTDIR={dst_dir}"',
+                f'set "EXE={exe_name}"',
+                'set /a tries=0',
+                ':waitloop',
+                'tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul',
+                'if errorlevel 1 goto run',
+                'set /a tries+=1',
+                'if %tries% geq 30 (',
+                '    taskkill /F /IM "%EXE%" >nul 2>&1',
+                '    goto run',
+                ')',
+                'ping 127.0.0.1 -n 2 > nul',
+                'goto waitloop',
+                ':run',
+                'start "" /wait "%SRC%" /SILENT /SP- /SUPPRESSMSGBOXES /NORESTART',
+                'if exist "%SRC%" del "%SRC%" >nul 2>&1',
+                'if exist "%DST%" start "" /D "%DSTDIR%" "%DST%" >nul 2>&1',
+                'del "%~f0" >nul 2>&1',
+                'exit /b 0',
+            ]
+        else:
+            # Голый exe приложения: копируем поверх (работает только если _internal на месте)
+            lines = [
+                '@echo off',
+                'setlocal',
+                f'set "SRC={src}"',
+                f'set "DST={dst}"',
+                f'set "DSTDIR={dst_dir}"',
+                f'set "EXE={exe_name}"',
+                'set /a tries=0',
+                ':waitloop',
+                'tasklist /FI "IMAGENAME eq %EXE%" 2>nul | find /I "%EXE%" >nul',
+                'if errorlevel 1 goto copy',
+                'set /a tries+=1',
+                'if %tries% geq 30 (',
+                '    taskkill /F /IM "%EXE%" >nul 2>&1',
+                '    goto copy',
+                ')',
+                'ping 127.0.0.1 -n 2 > nul',
+                'goto waitloop',
+                ':copy',
+                'copy /Y "%SRC%" "%DST%" >nul 2>&1',
+                'if not exist "%DST%" goto fail',
+                'if exist "%SRC%" del "%SRC%" >nul 2>&1',
+                'start "" /D "%DSTDIR%" "%DST%" >nul 2>&1',
+                'del "%~f0" >nul 2>&1',
+                'exit /b 0',
+                ':fail',
+                'if exist "%SRC%" del "%SRC%" >nul 2>&1',
+                'del "%~f0" >nul 2>&1',
+                'exit /b 1',
+            ]
+
+        bat.write_text('\r\n'.join(lines) + '\r\n', encoding='cp866', errors='replace')
         subprocess.Popen(
             ['cmd', '/c', str(bat)],
             shell=True, close_fds=True,
